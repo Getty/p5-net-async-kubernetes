@@ -1,0 +1,17 @@
+# Build artifacts
+Net-Async-Kubernetes-*/
+Net-Async-Kubernetes-*.tar.gz
+.build/
+
+# Test coverage
+cover_db/
+
+# Carton / local libs
+cpanfile.snapshot
+local/
+dzil-local/
+
+# Editor backups
+*~
+*.swp
+*.bak

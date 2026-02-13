@@ -1,0 +1,22 @@
+Revision history for Net-Async-Kubernetes
+
+{{$NEXT}}
+ - Initial release
+ - Async Kubernetes client built on IO::Async and Kubernetes::REST
+ - Future-based CRUD: list(), get(), create(), update(), patch(), delete()
+ - Three patch types: strategic-merge (default), merge, json
+ - Delete by class+name or by object reference
+ - Net::Async::Kubernetes::Watcher for streaming watch with auto-reconnect
+ - Separate on_added, on_modified, on_deleted, on_error callbacks
+ - Catch-all on_event callback for raw WatchEvent access
+ - Client-side event filtering: names (regex/string/array) and event_types
+ - Smart event type auto-derivation from registered callbacks
+ - Resumable watches via resourceVersion tracking
+ - Automatic 410 Gone recovery (clear resourceVersion and restart)
+ - Auto-reconnect on stream completion (server timeout) and connection errors
+ - Kubeconfig support via Kubernetes::REST::Kubeconfig
+ - SSL/TLS with client certificate support
+ - Custom resource_map for CRD support
+ - Pass Content-Type correctly to Net::Async::HTTP for all request bodies
+ - Defer watcher stop() HTTP close to avoid Net::Async::HTTP spurious read errors
+ - Comprehensive inline POD documentation for all public methods and attributes
