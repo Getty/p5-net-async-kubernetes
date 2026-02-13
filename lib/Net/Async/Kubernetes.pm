@@ -1,6 +1,6 @@
 package Net::Async::Kubernetes;
 # ABSTRACT: Async Kubernetes client for IO::Async
-
+our $VERSION = '0.002';
 use strict;
 use warnings;
 use parent 'IO::Async::Notifier';

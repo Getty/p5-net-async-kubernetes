@@ -1,5 +1,7 @@
 Revision history for Net-Async-Kubernetes
 
+{{$NEXT}}
+
 0.001     2026-02-13 06:03:10Z
  - Initial release
  - Async Kubernetes client built on IO::Async and Kubernetes::REST
