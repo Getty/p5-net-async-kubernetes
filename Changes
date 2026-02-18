@@ -1,6 +1,7 @@
 Revision history for Net-Async-Kubernetes
 
 {{$NEXT}}
+ - Updating minimum requirements
 
 0.001     2026-02-13 06:03:10Z
  - Initial release
