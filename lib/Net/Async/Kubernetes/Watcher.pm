@@ -1,6 +1,6 @@
 package Net::Async::Kubernetes::Watcher;
 # ABSTRACT: Auto-reconnecting Kubernetes watch as IO::Async::Notifier
-our $VERSION = '0.003';
+our $VERSION = '0.004';
 use strict;
 use warnings;
 use parent 'IO::Async::Notifier';
