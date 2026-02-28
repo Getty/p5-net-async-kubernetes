@@ -75,7 +75,11 @@ subtest 'resource_map passed to constructor' => sub {
 # Missing server/credentials
 # ============================================================================
 
-subtest 'croak without server or kubeconfig' => sub {
+subtest 'no config and no auto-detection' => sub {
+    # Force auto-detection to fail: fake HOME, no KUBECONFIG, no SA token
+    local $ENV{HOME} = '/nonexistent';
+    local $ENV{KUBECONFIG};
+    delete $ENV{KUBECONFIG};
     my $kube = Net::Async::Kubernetes->new;
     eval { $kube->server };
     like($@, qr/server or kubeconfig required/, 'server croaks without config');

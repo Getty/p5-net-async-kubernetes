@@ -1,6 +1,13 @@
 Revision history for Net-Async-Kubernetes
 
 {{$NEXT}}
+ - Auto-detect kubeconfig and in-cluster service account via
+   Kubernetes::REST::Kubeconfig (requires Kubernetes::REST >= 1.004).
+   When no explicit server/kubeconfig is provided, construction silently
+   tries default kubeconfig and in-cluster auth before falling back to
+   lazy resolution.
+
+0.003     2026-02-28 00:00:00Z
 
 0.002     2026-02-18 22:52:19Z
  - Updating minimum requirements

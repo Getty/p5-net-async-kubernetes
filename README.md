@@ -16,6 +16,7 @@ All API calls return [Future](https://metacpan.org/pod/Future) objects for non-b
 - **Three patch types**: strategic-merge (default), merge, json
 - **Custom Resource Definition (CRD) support** via `resource_map`
 - **Kubeconfig support** (`~/.kube/config`) with context selection
+- **In-cluster authentication**: auto-detects service account token when running inside a Kubernetes pod
 - **SSL/TLS** with client certificates
 - Built on [Kubernetes::REST](https://metacpan.org/pod/Kubernetes::REST) and [IO::K8s](https://metacpan.org/pod/IO::K8s)
 
@@ -35,6 +36,10 @@ my $loop = IO::Async::Loop->new;
 my $kube = Net::Async::Kubernetes->new(
     kubeconfig => "$ENV{HOME}/.kube/config",
 );
+$loop->add($kube);
+
+# In-cluster: auto-detects service account token (no config needed)
+my $kube = Net::Async::Kubernetes->new;
 $loop->add($kube);
 
 # Or with explicit server/credentials

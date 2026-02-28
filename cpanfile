@@ -8,7 +8,7 @@ requires 'Future', '0.47';
 requires 'URI';
 requires 'IO::Socket::SSL';
 
-requires 'Kubernetes::REST', '1.000';
+requires 'Kubernetes::REST', '1.004';
 requires 'IO::K8s', '1.000';
 
 on test => sub {
