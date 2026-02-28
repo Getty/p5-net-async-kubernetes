@@ -2,27 +2,13 @@ use strict;
 use warnings;
 use Test::More;
 
-use lib 't/lib';
 use FindBin;
+use lib "$FindBin::Bin/lib";
 
 use IO::Async::Loop;
 use Net::Async::Kubernetes;
 use MockTransport;
-
-# Load the CRD test class from kubernetes-rest (sibling directory)
-my $kr_tlib = "$FindBin::Bin/../../kubernetes-rest/t/lib";
-if (-d $kr_tlib) {
-    unshift @INC, $kr_tlib;
-}
-
-my $has_crd_class;
-eval {
-    require My::StaticWebSite;
-    $has_crd_class = 1;
-};
-
-plan skip_all => 'My::StaticWebSite not available (need kubernetes-rest t/lib)'
-    unless $has_crd_class;
+use My::StaticWebSite;
 
 my $loop = IO::Async::Loop->new;
 
