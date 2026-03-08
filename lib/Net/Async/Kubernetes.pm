@@ -16,6 +16,7 @@ use Kubernetes::REST::AuthToken;
 use Kubernetes::REST::HTTPRequest;
 use Kubernetes::REST::HTTPResponse;
 use Kubernetes::REST::WatchEvent;
+use Kubernetes::REST::LogEvent;
 
 sub configure {
     my ($self, %params) = @_;
@@ -528,6 +529,108 @@ Arguments:
 
 =cut
 
+sub log {
+    my ($self, $short_class, @rest_args) = @_;
+
+    my $rest = $self->_rest;
+    my %args;
+
+    # Support: log('Pod', 'name', ...) and log('Pod', name => 'name', ...)
+    if (@rest_args >= 1
+        && !ref($rest_args[0])
+        && $rest_args[0] !~ /^(name|namespace|container|follow|tailLines|sinceSeconds|sinceTime|timestamps|previous|limitBytes|on_line)$/
+    ) {
+        $args{name} = shift @rest_args;
+        return Future->fail("Invalid arguments to log()") if @rest_args % 2;
+        %args = (%args, @rest_args);
+    } elsif (@rest_args % 2 == 0) {
+        %args = @rest_args;
+    } else {
+        return Future->fail("Invalid arguments to log()");
+    }
+
+    return Future->fail("name required for log") unless $args{name};
+
+    my $on_line       = delete $args{on_line};
+    my $container     = delete $args{container};
+    my $follow        = delete $args{follow};
+    my $tail_lines    = delete $args{tailLines};
+    my $since_seconds = delete $args{sinceSeconds};
+    my $since_time    = delete $args{sinceTime};
+    my $timestamps    = delete $args{timestamps};
+    my $previous      = delete $args{previous};
+    my $limit_bytes   = delete $args{limitBytes};
+
+    my $class = $rest->expand_class($short_class);
+    my $path = $rest->build_path($class, %args) . '/log';
+
+    my %params;
+    $params{container}    = $container     if defined $container;
+    $params{follow}       = 'true'         if $follow;
+    $params{tailLines}    = $tail_lines    if defined $tail_lines;
+    $params{sinceSeconds} = $since_seconds if defined $since_seconds;
+    $params{sinceTime}    = $since_time    if defined $since_time;
+    $params{timestamps}   = 'true'         if $timestamps;
+    $params{previous}     = 'true'         if $previous;
+    $params{limitBytes}   = $limit_bytes   if defined $limit_bytes;
+
+    if ($on_line) {
+        my $req = $rest->prepare_request('GET', $path, parameters => \%params);
+        my $buffer = '';
+
+        return $self->_do_streaming_request($req, sub {
+            my ($chunk) = @_;
+            for my $event ($rest->process_log_chunk(\$buffer, $chunk)) {
+                $on_line->($event);
+            }
+        })->then(sub {
+            my ($response) = @_;
+            $rest->check_response($response, "log $short_class");
+            if (length $buffer) {
+                $on_line->(Kubernetes::REST::LogEvent->new(line => $buffer));
+            }
+            return Future->done(undef);
+        });
+    }
+
+    my $req = $rest->prepare_request('GET', $path,
+        %params ? (parameters => \%params) : (),
+    );
+    return $self->_do_request($req)->then(sub {
+        my ($response) = @_;
+        $rest->check_response($response, "log $short_class");
+        return Future->done($response->content);
+    });
+}
+
+=method log
+
+    # One-shot mode (Future resolves to full text)
+    my $text = $kube->log('Pod', 'my-pod',
+        namespace => 'default',
+        tailLines => 100,
+    )->get;
+
+    # Streaming mode (Future resolves when stream ends)
+    $kube->log('Pod', 'my-pod',
+        namespace => 'default',
+        follow    => 1,
+        on_line   => sub {
+            my ($event) = @_;  # Kubernetes::REST::LogEvent
+            say $event->line;
+        },
+    )->get;
+
+Retrieve logs from a pod.
+
+Without C<on_line>, returns a L<Future> that resolves to the full log text.
+
+With C<on_line>, opens a streaming request and invokes the callback once per
+line with L<Kubernetes::REST::LogEvent> objects. The returned L<Future>
+resolves when the stream ends.
+
+=cut
+
 # ============================================================================
 # WATCHER FACTORY
 # ============================================================================
@@ -681,6 +784,19 @@ Net::Async::Kubernetes - Async Kubernetes client for IO::Async
 
     $kube->delete('Pod', 'nginx', namespace => 'default')->get;
 
+    # Pod logs (one-shot)
+    my $text = $kube->log('Pod', 'nginx',
+        namespace => 'default',
+        tailLines => 100,
+    )->get;
+
+    # Pod logs (streaming)
+    $kube->log('Pod', 'nginx',
+        namespace => 'default',
+        follow    => 1,
+        on_line   => sub { my ($event) = @_; say $event->line },
+    )->get;
+
     # Watcher with auto-reconnect
     my $watcher = $kube->watcher('Pod',
         namespace   => 'default',
@@ -697,7 +813,7 @@ C<Net::Async::Kubernetes> is an async Kubernetes client built on L<IO::Async>.
 It extends L<IO::Async::Notifier> and uses L<Net::Async::HTTP> for
 non-blocking HTTP communication.
 
-All CRUD methods return L<Future> objects. The L<Net::Async::Kubernetes::Watcher>
+All CRUD and log methods return L<Future> objects. The L<Net::Async::Kubernetes::Watcher>
 provides auto-reconnecting event streaming with separate callbacks per
 event type.
 
