@@ -631,6 +631,88 @@ resolves when the stream ends.
 
 =cut
 
+sub port_forward {
+    my ($self, $short_class, @rest_args) = @_;
+
+    my $rest = $self->_rest;
+    my %args;
+
+    # Support: port_forward('Pod', 'name', ...) and port_forward('Pod', name => 'name', ...)
+    if (@rest_args >= 1
+        && !ref($rest_args[0])
+        && $rest_args[0] !~ /^(name|namespace|ports|subprotocol|on_open|on_frame|on_close|on_error)$/
+    ) {
+        $args{name} = shift @rest_args;
+        return Future->fail("Invalid arguments to port_forward()") if @rest_args % 2;
+        %args = (%args, @rest_args);
+    } elsif (@rest_args % 2 == 0) {
+        %args = @rest_args;
+    } else {
+        return Future->fail("Invalid arguments to port_forward()");
+    }
+
+    return Future->fail("name required for port_forward") unless $args{name};
+
+    my $ports = delete $args{ports};
+    return Future->fail("ports required for port_forward") unless defined $ports;
+    $ports = [$ports] unless ref($ports) eq 'ARRAY';
+    return Future->fail("ports required for port_forward") unless @$ports;
+    for my $p (@$ports) {
+        return Future->fail("invalid port '$p' for port_forward")
+            unless defined($p) && $p =~ /^\d+$/ && $p > 0 && $p <= 65535;
+    }
+
+    my $subprotocol = delete $args{subprotocol} // 'v4.channel.k8s.io';
+    my $on_open  = delete $args{on_open};
+    my $on_frame = delete $args{on_frame};
+    my $on_close = delete $args{on_close};
+    my $on_error = delete $args{on_error};
+
+    my $class = $rest->expand_class($short_class);
+    my $path = $rest->build_path($class, %args) . '/portforward';
+
+    # Keep compatibility with Kubernetes::REST >= 1.100 by expanding repeated
+    # ports query params here instead of relying on arrayref parameter support.
+    my $query = join('&', map { "ports=$_" } @$ports);
+    my $path_with_query = $query ? "$path?$query" : $path;
+
+    my $req = $rest->prepare_request('GET', $path_with_query,
+        headers    => {
+            Accept                   => '*/*',
+            Connection               => 'Upgrade',
+            Upgrade                  => 'websocket',
+            'Sec-WebSocket-Protocol' => $subprotocol,
+        },
+    );
+
+    return $self->_do_duplex_request($req,
+        on_open  => $on_open,
+        on_frame => $on_frame,
+        on_close => $on_close,
+        on_error => $on_error,
+    );
+}
+
+=method port_forward
+
+    my $f = $kube->port_forward('Pod', 'my-pod',
+        namespace => 'default',
+        ports     => [8080, 8443],
+        on_frame  => sub { my ($channel, $payload) = @_; ... },
+    );
+    my $session = $f->get;
+
+Create an async pod port-forward session request.
+
+Returns a L<Future> that resolves to the duplex session object returned by the
+transport backend.
+
+This requires a backend that supports duplex upgraded connections. The default
+L<Net::Async::HTTP>-based transport currently does not implement that and will
+return a failed L<Future> from C<_do_duplex_request>.
+
+=cut
+
 # ============================================================================
 # WATCHER FACTORY
 # ============================================================================
@@ -738,6 +820,11 @@ sub _do_streaming_request {
     });
 }
 
+sub _do_duplex_request {
+    my ($self, $req, %callbacks) = @_;
+    return Future->fail("port_forward is not supported by the current transport backend");
+}
+
 1;
 
 __END__
@@ -797,6 +884,13 @@ Net::Async::Kubernetes - Async Kubernetes client for IO::Async
         on_line   => sub { my ($event) = @_; say $event->line },
     )->get;
 
+    # Port-forward (requires duplex-capable transport backend)
+    my $pf = $kube->port_forward('Pod', 'nginx',
+        namespace => 'default',
+        ports     => [8080],
+        on_frame  => sub { my ($channel, $payload) = @_; ... },
+    )->get;
+
     # Watcher with auto-reconnect
     my $watcher = $kube->watcher('Pod',
         namespace   => 'default',
@@ -813,7 +907,8 @@ C<Net::Async::Kubernetes> is an async Kubernetes client built on L<IO::Async>.
 It extends L<IO::Async::Notifier> and uses L<Net::Async::HTTP> for
 non-blocking HTTP communication.
 
-All CRUD and log methods return L<Future> objects. The L<Net::Async::Kubernetes::Watcher>
+All CRUD, log, and port-forward methods return L<Future> objects. The
+L<Net::Async::Kubernetes::Watcher>
 provides auto-reconnecting event streaming with separate callbacks per
 event type.
 
