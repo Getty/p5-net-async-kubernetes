@@ -22,7 +22,7 @@ sub make_kube {
     return $kube;
 }
 
-subtest 'default transport reports unsupported duplex' => sub {
+subtest 'default transport requires notifier to be in loop for port_forward' => sub {
     my $kube = Net::Async::Kubernetes->new(
         server      => { endpoint => 'https://mock.local' },
         credentials => { token => 'mock-token' },
@@ -34,7 +34,7 @@ subtest 'default transport reports unsupported duplex' => sub {
         ports     => [8080],
     );
     ok($f->is_failed, 'default port_forward future failed');
-    like($f->failure, qr/not supported/i, 'unsupported message');
+    like($f->failure, qr/added to an IO::Async::Loop/i, 'clear loop requirement message');
 };
 
 subtest 'port_forward validation' => sub {
