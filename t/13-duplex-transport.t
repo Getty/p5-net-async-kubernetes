@@ -154,4 +154,35 @@ subtest 'connect failure is propagated and reported to on_error' => sub {
     ok(!$last_ws->parent, 'failed websocket client detached from notifier');
 };
 
+subtest 'exec uses websocket transport and command query params' => sub {
+    my $loop = IO::Async::Loop->new;
+    my $kube = make_kube($loop);
+    my $last_ws;
+
+    no warnings 'redefine';
+    local *Net::Async::Kubernetes::_make_websocket_client = sub {
+        my ($self, %args) = @_;
+        $last_ws = Test::WSClient->new(%args);
+        return $last_ws;
+    };
+
+    my $session = $kube->exec('Pod', 'nginx',
+        namespace => 'default',
+        command   => ['sh', '-c', 'id'],
+        stdin     => 1,
+        stderr    => 0,
+    )->get;
+
+    isa_ok($session, 'Net::Async::Kubernetes::PortForwardSession');
+    my $connect = $last_ws->connect_args;
+    like($connect->{url}, qr{/api/v1/namespaces/default/pods/nginx/exec}, 'exec path used');
+    like($connect->{url}, qr/command=sh/, 'first command parameter');
+    like($connect->{url}, qr/command=-c/, 'second command parameter');
+    like($connect->{url}, qr/command=id/, 'third command parameter');
+    like($connect->{url}, qr/stdin=true/, 'stdin set');
+    like($connect->{url}, qr/stdout=true/, 'stdout default set');
+    like($connect->{url}, qr/stderr=false/, 'stderr override set');
+    like($connect->{url}, qr/tty=false/, 'tty default set');
+};
+
 done_testing;
