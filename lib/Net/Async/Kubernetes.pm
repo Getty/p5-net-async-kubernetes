@@ -811,6 +811,95 @@ binary websocket frame is decoded as Kubernetes channel id.
 
 =cut
 
+sub attach {
+    my ($self, $short_class, @rest_args) = @_;
+
+    my $rest = $self->_rest;
+    my %args;
+
+    # Support: attach('Pod', 'name', ...) and attach('Pod', name => 'name', ...)
+    if (@rest_args >= 1
+        && !ref($rest_args[0])
+        && $rest_args[0] !~ /^(name|namespace|container|stdin|stdout|stderr|tty|subprotocol|on_open|on_frame|on_close|on_error)$/
+    ) {
+        $args{name} = shift @rest_args;
+        return Future->fail("Invalid arguments to attach()") if @rest_args % 2;
+        %args = (%args, @rest_args);
+    } elsif (@rest_args % 2 == 0) {
+        %args = @rest_args;
+    } else {
+        return Future->fail("Invalid arguments to attach()");
+    }
+
+    return Future->fail("name required for attach") unless $args{name};
+
+    my $container = delete $args{container};
+    my $stdin  = delete($args{stdin})  ? 1 : 0;
+    my $stdout = exists($args{stdout}) ? (delete($args{stdout}) ? 1 : 0) : 1;
+    my $stderr = exists($args{stderr}) ? (delete($args{stderr}) ? 1 : 0) : 1;
+    my $tty    = delete($args{tty})    ? 1 : 0;
+
+    my $subprotocol = delete $args{subprotocol} // 'v4.channel.k8s.io';
+    my $on_open  = delete $args{on_open};
+    my $on_frame = delete $args{on_frame};
+    my $on_close = delete $args{on_close};
+    my $on_error = delete $args{on_error};
+
+    my $class = $rest->expand_class($short_class);
+    my $path = $rest->build_path($class, %args) . '/attach';
+
+    my %params = (
+        stdin   => $stdin  ? 'true' : 'false',
+        stdout  => $stdout ? 'true' : 'false',
+        stderr  => $stderr ? 'true' : 'false',
+        tty     => $tty    ? 'true' : 'false',
+    );
+    $params{container} = $container if defined $container;
+
+    my $req = $rest->prepare_request('GET', $path,
+        parameters => \%params,
+        headers    => {
+            Accept                   => '*/*',
+            Connection               => 'Upgrade',
+            Upgrade                  => 'websocket',
+            'Sec-WebSocket-Protocol' => $subprotocol,
+        },
+    );
+
+    return $self->_do_duplex_request($req,
+        on_open  => $on_open,
+        on_frame => $on_frame,
+        on_close => $on_close,
+        on_error => $on_error,
+    );
+}
+
+=method attach
+
+    my $f = $kube->attach('Pod', 'my-pod',
+        namespace => 'default',
+        container => 'app',
+        stdin     => 1,
+        stdout    => 1,
+        stderr    => 1,
+        tty       => 0,
+        on_frame  => sub { my ($channel, $payload) = @_; ... },
+    );
+    my $session = $f->get;
+
+Create an async pod attach session request.
+
+Returns a L<Future> that resolves to the duplex session object returned by the
+transport backend. The default transport returns a
+L<Net::Async::Kubernetes::PortForwardSession> object.
+
+C<on_open> receives the created session object.
+
+C<on_frame> receives C<($channel, $payload)> where the first byte of each
+binary websocket frame is decoded as Kubernetes channel id.
+
+=cut
+
 # ============================================================================
 # WATCHER FACTORY
 # ============================================================================
@@ -1197,6 +1286,17 @@ Net::Async::Kubernetes - Async Kubernetes client for IO::Async
         on_frame  => sub { my ($channel, $payload) = @_; ... },
     )->get;
 
+    # Pod attach (websocket duplex)
+    my $attach = $kube->attach('Pod', 'nginx',
+        namespace => 'default',
+        container => 'app',
+        stdin     => 1,
+        stdout    => 1,
+        stderr    => 1,
+        tty       => 0,
+        on_frame  => sub { my ($channel, $payload) = @_; ... },
+    )->get;
+
     # Watcher with auto-reconnect
     my $watcher = $kube->watcher('Pod',
         namespace   => 'default',
@@ -1214,7 +1314,7 @@ It extends L<IO::Async::Notifier> and uses L<Net::Async::HTTP> for
 non-blocking HTTP communication, plus L<Net::Async::WebSocket::Client> for
 duplex subresources like pod port-forward.
 
-All CRUD, log, port-forward, and exec methods return L<Future> objects. The
+All CRUD, log, port-forward, exec, and attach methods return L<Future> objects. The
 L<Net::Async::Kubernetes::Watcher>
 provides auto-reconnecting event streaming with separate callbacks per
 event type.

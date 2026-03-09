@@ -185,4 +185,33 @@ subtest 'exec uses websocket transport and command query params' => sub {
     like($connect->{url}, qr/tty=false/, 'tty default set');
 };
 
+subtest 'attach uses websocket transport and stream flags' => sub {
+    my $loop = IO::Async::Loop->new;
+    my $kube = make_kube($loop);
+    my $last_ws;
+
+    no warnings 'redefine';
+    local *Net::Async::Kubernetes::_make_websocket_client = sub {
+        my ($self, %args) = @_;
+        $last_ws = Test::WSClient->new(%args);
+        return $last_ws;
+    };
+
+    my $session = $kube->attach('Pod', 'nginx',
+        namespace => 'default',
+        container => 'app',
+        stdin     => 1,
+        stderr    => 0,
+    )->get;
+
+    isa_ok($session, 'Net::Async::Kubernetes::PortForwardSession');
+    my $connect = $last_ws->connect_args;
+    like($connect->{url}, qr{/api/v1/namespaces/default/pods/nginx/attach}, 'attach path used');
+    like($connect->{url}, qr/container=app/, 'container parameter');
+    like($connect->{url}, qr/stdin=true/, 'stdin set');
+    like($connect->{url}, qr/stdout=true/, 'stdout default set');
+    like($connect->{url}, qr/stderr=false/, 'stderr override set');
+    like($connect->{url}, qr/tty=false/, 'tty default set');
+};
+
 done_testing;

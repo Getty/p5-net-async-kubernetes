@@ -9,6 +9,7 @@ All API calls return [Future](https://metacpan.org/pod/Future) objects for non-b
 - **Future-based CRUD + logs**: `list()`, `get()`, `create()`, `update()`, `patch()`, `delete()`, `log()`
 - **Port-forward API**: `port_forward()` with built-in WebSocket duplex transport
 - **Exec API**: `exec()` with built-in WebSocket duplex transport
+- **Attach API**: `attach()` with built-in WebSocket duplex transport
 - **Streaming watch** with auto-reconnect and resumable `resourceVersion` tracking
 - **Event callbacks**: `on_added`, `on_modified`, `on_deleted`, `on_error`, `on_event`
 - **Client-side filtering**: `names` (regex/string/array) and `event_types` for declarative event filtering
@@ -104,6 +105,20 @@ $pf->close(code => 1000);
 my $exec = $kube->exec('Pod', 'nginx',
     namespace => 'default',
     command   => ['sh', '-c', 'id'],
+    on_frame  => sub {
+        my ($channel, $payload) = @_;
+        ...
+    },
+)->get;
+
+# Attach (built-in websocket duplex support)
+my $attach = $kube->attach('Pod', 'nginx',
+    namespace => 'default',
+    container => 'app',
+    stdin     => 1,
+    stdout    => 1,
+    stderr    => 1,
+    tty       => 0,
     on_frame  => sub {
         my ($channel, $payload) = @_;
         ...
