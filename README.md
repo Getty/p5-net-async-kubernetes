@@ -10,6 +10,7 @@ All API calls return [Future](https://metacpan.org/pod/Future) objects for non-b
 - **Port-forward API**: `port_forward()` with built-in WebSocket duplex transport
 - **Exec API**: `exec()` with built-in WebSocket duplex transport
 - **Attach API**: `attach()` with built-in WebSocket duplex transport
+- **CP helpers**: `cp_to_pod()` and `cp_from_pod()` built on async `exec()`
 - **Streaming watch** with auto-reconnect and resumable `resourceVersion` tracking
 - **Event callbacks**: `on_added`, `on_modified`, `on_deleted`, `on_error`, `on_event`
 - **Client-side filtering**: `names` (regex/string/array) and `event_types` for declarative event filtering
@@ -130,6 +131,19 @@ my $attach = $kube->attach('Pod', 'nginx',
 
 $attach->write_stdin("help\n");
 
+# Copy local file to pod and back
+$kube->cp_to_pod('Pod', 'nginx',
+    namespace => 'default',
+    local     => '/tmp/local.txt',
+    remote    => '/tmp/remote.txt',
+)->get;
+
+$kube->cp_from_pod('Pod', 'nginx',
+    namespace => 'default',
+    remote    => '/tmp/remote.txt',
+    local     => '/tmp/downloaded.txt',
+)->get;
+
 # Watch for changes with auto-reconnect
 my $watcher = $kube->watcher('Pod',
     namespace      => 'default',
@@ -166,6 +180,16 @@ prove -l t/
 # Run against a real cluster (e.g. minikube)
 TEST_KUBERNETES_REST_KUBECONFIG=~/.kube/config prove -lv t/
 ```
+
+## Live Feature Demo
+
+Run the live feature showcase script (uses a real kubeconfig and a target pod):
+
+```bash
+KUBECONFIG=~/.kube/config perl -Ilib ex/live_features.pl --namespace default --pod my-pod
+```
+
+Options include `--kubeconfig`, `--namespace`, `--pod`, `--container`, `--tail-lines`, and `--port`.
 
 ## Documentation
 

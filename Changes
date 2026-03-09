@@ -30,6 +30,12 @@ Revision history for Net-Async-Kubernetes
  - Extend `Net::Async::Kubernetes::PortForwardSession` with convenience
    helpers `write_stdin()` (channel 0) and `resize()` (channel 4 terminal
    resize payload for exec/attach).
+ - Add async cp helpers `cp_to_pod()` and `cp_from_pod()` built on `exec()`.
+   Supports single-file upload/download via channel streaming with Future-based
+   completion and status/error propagation.
+ - Add cp helper mock tests in `t/16-mock-cp.t`.
+ - Add live demo script `ex/live_features.pl` to exercise log, exec, attach,
+   port-forward, and cp helpers against a real cluster/kubeconfig.
  - Raise minimum versions to Kubernetes::REST 1.101 and IO::K8s 1.008.
 
 0.005     2026-03-04 17:14:31Z
