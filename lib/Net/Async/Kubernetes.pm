@@ -709,6 +709,9 @@ Returns a L<Future> that resolves to the duplex session object returned by the
 transport backend. The default transport returns a
 L<Net::Async::Kubernetes::PortForwardSession> object.
 
+The session helper supports C<write_channel>, C<write_stdin>, C<resize>, and
+C<close>.
+
 C<on_open> receives the created session object.
 
 C<on_frame> receives C<($channel, $payload)> where the first byte of each
@@ -804,6 +807,9 @@ Returns a L<Future> that resolves to the duplex session object returned by the
 transport backend. The default transport returns a
 L<Net::Async::Kubernetes::PortForwardSession> object.
 
+The session helper supports C<write_channel>, C<write_stdin>, C<resize>, and
+C<close>.
+
 C<on_open> receives the created session object.
 
 C<on_frame> receives C<($channel, $payload)> where the first byte of each
@@ -892,6 +898,9 @@ Create an async pod attach session request.
 Returns a L<Future> that resolves to the duplex session object returned by the
 transport backend. The default transport returns a
 L<Net::Async::Kubernetes::PortForwardSession> object.
+
+The session helper supports C<write_channel>, C<write_stdin>, C<resize>, and
+C<close>.
 
 C<on_open> receives the created session object.
 
@@ -1188,9 +1197,32 @@ sub write_channel {
     return $self->ws_client->send_binary_frame(chr($channel) . $payload);
 }
 
+sub write_stdin {
+    my ($self, $payload) = @_;
+    return $self->write_channel(0, $payload);
+}
+
 {
     no warnings 'once';
     *write = \&write_channel;
+    *stdin = \&write_stdin;
+}
+
+sub resize {
+    my ($self, %args) = @_;
+
+    my $width  = exists($args{width})  ? $args{width}  : $args{cols};
+    my $height = exists($args{height}) ? $args{height} : $args{rows};
+
+    croak "width required for resize" unless defined $width;
+    croak "height required for resize" unless defined $height;
+    croak "invalid width '$width' for resize"
+        unless $width =~ /^\d+$/ && $width > 0;
+    croak "invalid height '$height' for resize"
+        unless $height =~ /^\d+$/ && $height > 0;
+
+    my $payload = sprintf('{"Width":%d,"Height":%d}', $width, $height);
+    return $self->write_channel(4, $payload);
 }
 
 sub close {
@@ -1285,6 +1317,8 @@ Net::Async::Kubernetes - Async Kubernetes client for IO::Async
         command   => ['sh', '-c', 'id'],
         on_frame  => sub { my ($channel, $payload) = @_; ... },
     )->get;
+    $exec->write_stdin("id\n");
+    $exec->resize(width => 120, height => 40);
 
     # Pod attach (websocket duplex)
     my $attach = $kube->attach('Pod', 'nginx',
@@ -1296,6 +1330,7 @@ Net::Async::Kubernetes - Async Kubernetes client for IO::Async
         tty       => 0,
         on_frame  => sub { my ($channel, $payload) = @_; ... },
     )->get;
+    $attach->write_stdin("help\n");
 
     # Watcher with auto-reconnect
     my $watcher = $kube->watcher('Pod',

@@ -120,12 +120,29 @@ subtest 'duplex websocket transport returns active session' => sub {
     $session->write_channel(2, 'abc')->get;
     is($last_ws->sent_binary->[0], chr(2) . 'abc', 'write_channel encodes first byte as channel');
 
+    $session->write_stdin("pwd\n")->get;
+    is($last_ws->sent_binary->[1], chr(0) . "pwd\n", 'write_stdin uses channel 0');
+
+    $session->resize(width => 120, height => 40)->get;
+    is($last_ws->sent_binary->[2], chr(4) . '{"Width":120,"Height":40}', 'resize uses channel 4 json payload');
+
     $session->close(code => 1000, payload => 'bye')->get;
     is($last_ws->sent_close->[0], pack('n', 1000) . 'bye', 'close sends websocket close payload');
     is($last_ws->closed_when_empty, 1, 'close requests graceful socket close');
 
     $last_ws->emit_read_error(undef, 'boom');
     like($errors[-1], qr/boom/, 'transport errors forwarded to on_error');
+};
+
+subtest 'session helper validation' => sub {
+    my $ws = Test::WSClient->new;
+    my $session = Net::Async::Kubernetes::PortForwardSession->new(ws_client => $ws);
+
+    eval { $session->resize(width => 0, height => 20) };
+    like($@, qr/invalid width/i, 'resize validates width');
+
+    eval { $session->resize(width => 80) };
+    like($@, qr/height required/i, 'resize requires height');
 };
 
 subtest 'connect failure is propagated and reported to on_error' => sub {

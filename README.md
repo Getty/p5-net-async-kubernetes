@@ -111,6 +111,9 @@ my $exec = $kube->exec('Pod', 'nginx',
     },
 )->get;
 
+$exec->write_stdin("id\n");
+$exec->resize(width => 120, height => 40);
+
 # Attach (built-in websocket duplex support)
 my $attach = $kube->attach('Pod', 'nginx',
     namespace => 'default',
@@ -124,6 +127,8 @@ my $attach = $kube->attach('Pod', 'nginx',
         ...
     },
 )->get;
+
+$attach->write_stdin("help\n");
 
 # Watch for changes with auto-reconnect
 my $watcher = $kube->watcher('Pod',
