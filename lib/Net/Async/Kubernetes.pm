@@ -8,6 +8,7 @@ use parent 'IO::Async::Notifier';
 use Carp qw(croak);
 use Scalar::Util qw(blessed);
 use IO::Socket::SSL;
+use File::Temp ();
 use Future;
 use URI;
 use Protocol::WebSocket::Request;
@@ -187,12 +188,39 @@ sub _ssl_options {
     } else {
         push @opts, SSL_verify_mode => SSL_VERIFY_NONE;
     }
+
     push @opts, SSL_ca_file   => $server->ssl_ca_file   if $server->ssl_ca_file;
     push @opts, SSL_cert_file => $server->ssl_cert_file  if $server->ssl_cert_file;
     push @opts, SSL_key_file  => $server->ssl_key_file   if $server->ssl_key_file;
+    my $ca_pem = $server->ssl_ca_pem;
+    if (defined $ca_pem && length $ca_pem) {
+        push @opts, SSL_ca_file => $self->_materialize_ssl_pem(ca => $ca_pem);
+    }
+    my $cert_pem = $server->ssl_cert_pem;
+    if (defined $cert_pem && length $cert_pem) {
+        push @opts, SSL_cert_file => $self->_materialize_ssl_pem(cert => $cert_pem);
+    }
+    my $key_pem = $server->ssl_key_pem;
+    if (defined $key_pem && length $key_pem) {
+        push @opts, SSL_key_file => $self->_materialize_ssl_pem(key => $key_pem);
+    }
 
     $self->{_ssl_options} = \@opts;
     return @opts;
+}
+
+sub _materialize_ssl_pem {
+    my ($self, $kind, $pem) = @_;
+
+    my $fh = File::Temp->new(
+        SUFFIX => ".$kind.pem",
+        UNLINK => 1,
+    );
+    print {$fh} $pem;
+    close $fh;
+
+    push @{ $self->{_ssl_tempfiles} ||= [] }, $fh;
+    return $fh->filename;
 }
 
 sub expand_class { shift->_rest->expand_class(@_) }
@@ -1139,6 +1167,20 @@ sub watcher {
     return $watcher;
 }
 
+sub controller {
+    my ($self, %args) = @_;
+
+    require Net::Async::Kubernetes::Controller;
+
+    my $controller = Net::Async::Kubernetes::Controller->new(
+        kube => $self,
+        %args,
+    );
+
+    $self->add_child($controller);
+    return $controller;
+}
+
 =method watcher
 
     my $watcher = $kube->watcher('Pod',
@@ -1166,6 +1208,23 @@ Arguments:
 =back
 
 See L<Net::Async::Kubernetes::Watcher> for all available parameters.
+
+=cut
+
+=method controller
+
+    my $controller = $kube->controller(
+        on_reconcile => sub {
+            my ($ctx) = @_;
+            ...
+        },
+    );
+
+Create and register a L<Net::Async::Kubernetes::Controller> runtime bound to
+this client. The controller is added as a child notifier and can register
+resource watches, queue reconcile work, and patch object status.
+
+Returns the controller object.
 
 =cut
 

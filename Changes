@@ -1,6 +1,31 @@
 Revision history for Net-Async-Kubernetes
 
 {{$NEXT}}
+ - Add `Net::Async::Kubernetes::Controller` as a minimal controller runtime.
+   Provides watch registration, keyed workqueue deduplication, serialized
+   reconcile dispatch, retry hooks, and small helpers for object reload and
+   status subresource patch/update.
+ - Add `$kube->controller(...)` factory to bind controller runtimes directly
+   to an existing async Kubernetes client.
+ - Fix async TLS handling for kubeconfigs with inline CA/client PEM data by
+   materializing PEM content to temporary files before passing SSL options to
+   Net::Async::HTTP / IO::Socket::SSL. This unblocks mTLS-authenticated async
+   clients and controller runtimes against real clusters using embedded certs.
+ - Add active `exec()` API that builds Kubernetes pod exec requests
+   (`/exec` subresource) and delegates to the websocket duplex transport.
+   Supports command, container, stdin/stdout/stderr/tty toggles, and
+   subprotocol override.
+ - Add active `attach()` API that builds Kubernetes pod attach requests
+   (`/attach` subresource) and delegates to the websocket duplex transport.
+   Supports container, stdin/stdout/stderr/tty toggles, and subprotocol
+   override.
+ - Extend `Net::Async::Kubernetes::PortForwardSession` with `write_stdin`
+   (writes to channel 0) and `resize` (writes TTY resize JSON to channel 4)
+   helpers for exec/attach sessions.
+ - Add async `cp_to_pod()` and `cp_from_pod()` helpers that stream tar
+   archives through an exec session for file transfer.
+ - Add mock test coverage for exec (`t/14-mock-exec.t`), attach
+   (`t/15-mock-attach.t`), and cp (`t/16-mock-cp.t`) flows.
 
 0.006     2026-03-09 08:37:54Z
  - Add async Pod Log API via `log()`.

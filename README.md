@@ -169,6 +169,21 @@ my $watcher = $kube->watcher('Pod',
     namespace => 'default',
     on_added  => sub { ... },  # only ADDED events dispatched
 );
+
+# Create a minimal controller runtime
+my $controller = $kube->controller(
+    on_reconcile => sub {
+        my ($ctx) = @_;
+
+        return $ctx->{controller}->patch_status('Pod', $ctx->{object},
+            status => { phase => 'Running' },
+        );
+    },
+);
+
+$controller->watch_resource('Pod',
+    namespace => 'default',
+);
 ```
 
 ## Testing
