@@ -1,0 +1,4 @@
+---
+board:
+  name: Net::Async::Kubernetes
+version: 1
