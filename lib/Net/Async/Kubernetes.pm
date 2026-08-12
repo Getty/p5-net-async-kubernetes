@@ -262,10 +262,12 @@ sub list {
 =method list
 
     my $future = $kube->list('Pod', namespace => 'default');
-    my $pods = $future->get;
+    my $list = $future->get;
+    my @pods = @{ $list->items };
 
 List resources of the given type. Returns a L<Future> that resolves to an
-ArrayRef of inflated IO::K8s objects.
+L<IO::K8s::List>. Its C<items> accessor holds the ArrayRef of inflated
+IO::K8s objects.
 
 Arguments:
 
@@ -1034,7 +1036,13 @@ sub cp_to_pod {
     );
     my $result = $f->get;
 
-Copy a single local file into a pod using C<exec()> and stdin streaming.
+Copy a single local file into a pod. Reads the entire local file into memory,
+then runs C<sh -c 'head -c "$1" > "$2"'> inside the pod via C<exec()> and
+streams the bytes over stdin.
+
+This is a single-file copy, not a tar-based transfer: there is no recursive
+directory copy, and the whole file is held in memory, so it is not suitable
+for very large files.
 
 Returns a L<Future> resolving to a hashref containing C<local>, C<remote>,
 C<bytes>, C<stderr>, and C<status>.
@@ -1129,7 +1137,13 @@ sub cp_from_pod {
     );
     my $result = $f->get;
 
-Copy a single file from a pod using C<exec()> and stdout streaming.
+Copy a single file out of a pod. Runs C<cat $remote> inside the pod via
+C<exec()>, buffers the entire stdout stream in memory, then writes it to the
+local file.
+
+This is a single-file copy, not a tar-based transfer: there is no recursive
+directory copy, and the whole file is held in memory, so it is not suitable
+for very large files.
 
 Returns a L<Future> resolving to a hashref containing C<local>, C<remote>,
 C<bytes>, C<stderr>, and C<status>.
