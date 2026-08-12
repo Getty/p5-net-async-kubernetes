@@ -7,13 +7,17 @@ use parent 'IO::Async::Notifier';
 
 use Carp qw(croak);
 use Future;
-use Scalar::Util qw(blessed);
+use Scalar::Util qw(blessed weaken);
 
 sub configure {
     my ($self, %params) = @_;
 
     if (exists $params{kube}) {
+        # Borrowed client: weak, like Net::Async::Kubernetes::Watcher does.
+        # $kube->controller(...) add_child()s us, so a strong ref here would
+        # cycle kube -> child controller -> kube and never free either.
         $self->{kube} = delete $params{kube};
+        weaken($self->{kube});
     } elsif (!$self->{kube}) {
         require Net::Async::Kubernetes;
         my %kube_args;
@@ -23,11 +27,15 @@ sub configure {
         )) {
             $kube_args{$key} = delete $params{$key} if exists $params{$key};
         }
+        # Self-constructed client: strong, the controller is its only owner.
         $self->{kube} = Net::Async::Kubernetes->new(%kube_args) if %kube_args;
     }
 
     if (exists $params{on_reconcile}) {
         $self->{on_reconcile} = delete $params{on_reconcile};
+    }
+    if (exists $params{on_watch_error}) {
+        $self->{on_watch_error} = delete $params{on_watch_error};
     }
     if (exists $params{retry_delay}) {
         $self->{retry_delay} = delete $params{retry_delay};
@@ -42,6 +50,7 @@ sub configure {
 
 sub kube { $_[0]->{kube} }
 sub on_reconcile { $_[0]->{on_reconcile} }
+sub on_watch_error { $_[0]->{on_watch_error} }
 sub retry_delay { exists $_[0]->{retry_delay} ? $_[0]->{retry_delay} : 1 }
 
 sub _add_to_loop {
@@ -112,6 +121,21 @@ sub _start_watch_spec {
     my $resource = delete $watch_args{resource};
     delete @watch_args{qw(key_for)};
 
+    # ERROR events carry a Status hashref, not a keyed resource object, so they
+    # cannot go through the reconcile workqueue. Report them to the controller
+    # hook instead - an on_error given per watch keeps precedence.
+    my $on_watch_error = $self->on_watch_error;
+    if ($on_watch_error && !$watch_args{on_error}) {
+        $watch_args{on_error} = sub {
+            my ($error) = @_;
+            $on_watch_error->($error, {
+                controller => $self,
+                kube       => $self->kube,
+                resource   => $spec->{resource},
+            });
+        };
+    }
+
     $spec->{watcher} = $self->kube->watcher($resource,
         %watch_args,
         on_added    => sub { $self->_enqueue_event($spec, 'ADDED',    $_[0]) },
@@ -136,6 +160,9 @@ sub _enqueue_event {
         key        => $key,
         attempt    => ($entry->{failures} // 0) + 1,
     };
+    # The ctx outlives the reconcile in {entries}; a strong client ref here
+    # would restore the kube -> controller -> kube cycle weakened above.
+    weaken($entry->{ctx}{kube});
 
     if ($entry->{active}) {
         $entry->{dirty} = 1;
@@ -409,17 +436,29 @@ Accepted parameters:
 
 =item C<kube>
 
-Existing L<Net::Async::Kubernetes> instance to bind to.
+Existing L<Net::Async::Kubernetes> instance to bind to. The reference is weak,
+as in L<Net::Async::Kubernetes::Watcher>, so the caller has to keep the client
+alive for as long as the controller is used.
 
 =item C<kubeconfig>, C<context>, C<server>, C<credentials>, C<resource_map>,
 C<resource_map_from_cluster>
 
-Client construction parameters used when C<kube> is not supplied.
+Client construction parameters used when C<kube> is not supplied. A client
+built this way is owned by the controller.
 
 =item C<on_reconcile>
 
 Required reconcile callback. Receives a hashref with C<controller>, C<kube>,
 C<resource>, C<event_type>, C<object>, C<key>, and C<attempt>.
+
+=item C<on_watch_error>
+
+Optional callback for C<ERROR> events from a registered watch, for example a
+C<403> arriving mid-stream. Receives C<($error, $ctx)>, where C<$error> is the
+raw error hashref the watcher reports and C<$ctx> carries C<controller>,
+C<kube>, and C<resource>. Error events are not reconcile objects, so they never
+enter the workqueue. An C<on_error> passed to C<watch_resource> takes
+precedence for that watch.
 
 =item C<retry_delay>
 
@@ -435,6 +474,10 @@ Returns the bound L<Net::Async::Kubernetes> client.
 =method on_reconcile
 
 Returns the reconcile callback.
+
+=method on_watch_error
+
+Returns the watch error callback, if one is configured.
 
 =method retry_delay
 

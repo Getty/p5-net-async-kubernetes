@@ -715,6 +715,7 @@ sub port_forward {
     );
 
     return $self->_do_duplex_request($req,
+        caller   => 'port_forward',
         on_open  => $on_open,
         on_frame => $on_frame,
         on_close => $on_close,
@@ -813,6 +814,7 @@ sub exec {
     );
 
     return $self->_do_duplex_request($req,
+        caller   => 'exec',
         on_open  => $on_open,
         on_frame => $on_frame,
         on_close => $on_close,
@@ -901,6 +903,7 @@ sub attach {
     );
 
     return $self->_do_duplex_request($req,
+        caller   => 'attach',
         on_open  => $on_open,
         on_frame => $on_frame,
         on_close => $on_close,
@@ -1288,8 +1291,9 @@ sub _do_streaming_request {
 
 sub _do_duplex_request {
     my ($self, $req, %callbacks) = @_;
+    my $caller_name = delete($callbacks{caller}) // 'duplex request';
     my $loop = eval { $self->loop };
-    return Future->fail("port_forward requires Net::Async::Kubernetes to be added to an IO::Async::Loop")
+    return Future->fail("$caller_name requires Net::Async::Kubernetes to be added to an IO::Async::Loop")
         unless $loop;
 
     my $on_open  = $callbacks{on_open};

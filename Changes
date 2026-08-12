@@ -1,6 +1,20 @@
 Revision history for Net-Async-Kubernetes
 
 {{$NEXT}}
+ - Add `on_watch_error` to `Net::Async::Kubernetes::Controller`. Watch `ERROR`
+   events (a `403` arriving mid-stream, for example) were wired nowhere and
+   stayed invisible to the controller. They carry a `Status` hashref rather
+   than a keyed resource object, so they are reported to the callback instead
+   of entering the reconcile workqueue. An `on_error` passed to
+   `watch_resource` keeps precedence for that watch.
+ - Fix a reference cycle that leaked the client bound to a controller. The
+   controller held a strong reference to `kube` while `$kube->controller(...)`
+   registers the controller as a child, so neither was ever freed. A supplied
+   client is now weakened, as in `Net::Async::Kubernetes::Watcher`; a client
+   the controller constructs itself stays owned by it.
+ - Fix the duplex transport reporting `port_forward` in its "not added to an
+   IO::Async::Loop" failure regardless of which method was called; `exec()`
+   and `attach()` now name themselves.
 
 0.007     2026-04-15 18:21:50Z
  - Add `Net::Async::Kubernetes::Controller` as a minimal controller runtime.
