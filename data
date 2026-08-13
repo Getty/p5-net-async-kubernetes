@@ -1,0 +1,18 @@
+---
+claimed_at: 2026-08-13T01:03:28Z
+claimed_by: nak-worker
+class: standard
+completed: 2026-08-13T01:03:28Z
+created: 2026-08-12T18:43:42Z
+id: 4
+priority: medium
+started: 2026-08-12T20:27:23Z
+status: done
+tags:
+- design
+- controller
+title: Controller never sees watch ERROR events
+updated: 2026-08-13T01:03:28Z
+---
+
+_start_watch_spec wires only on_added/on_modified/on_deleted; watch ERROR events (e.g. 403 mid-stream) are invisible to the controller. Decide: wire on_error into the queue or expose a controller-level on_watch_error hook. Lane: nak-worker.
