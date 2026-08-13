@@ -8,9 +8,9 @@ requires 'Net::Async::WebSocket::Client', '0.14';
 requires 'Future', '0.47';
 requires 'URI';
 requires 'IO::Socket::SSL';
-requires 'Protocol::WebSocket::Request';
+requires 'Protocol::WebSocket';
 
-requires 'Kubernetes::REST', '1.106';
+requires 'Kubernetes::REST', '1.107';
 requires 'IO::K8s', '1.106';
 
 on test => sub {
