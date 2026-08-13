@@ -1,0 +1,18 @@
+---
+claimed_at: 2026-08-13T01:50:43Z
+claimed_by: nak-worker
+class: standard
+completed: 2026-08-13T01:50:43Z
+created: 2026-08-13T00:56:00Z
+id: 15
+priority: low
+started: 2026-08-13T01:38:29Z
+status: done
+tags:
+- controller
+- robustness
+title: 'Latent: a stale queue key drops the drain without rescheduling'
+updated: 2026-08-13T01:50:43Z
+---
+
+Found while working on 11. In _drain_queue the line "my $entry = $self->{entries}{$key} or return;" abandons the whole drain when a queued key has no entry, instead of skipping that key and carrying on, so the rest of the queue stalls. Currently unreachable: a key is pruned only when it is not queued, and the queued flag keeps a key at most once in the queue. It is a trap for whoever loosens the prune conditions later. Cheap fix is next rather than return; worth a test that queues a key with no entry and asserts the following key still reconciles.
