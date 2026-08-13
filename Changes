@@ -25,6 +25,12 @@ Revision history for Net-Async-Kubernetes
    `patch_status()` now return a failed `Future` naming the resource, keeping
    the contract their callers await on. The two genuinely synchronous paths,
    `$kube->expand_class` and starting a watcher, croak with the same message.
+ - Require `Kubernetes::REST` 1.106 (was 1.102) and `IO::K8s` 1.105 (was
+   1.008). Kubernetes::REST 1.106 encodes request bodies as UTF-8 bytes;
+   every `create`, `update` and `patch` here builds its body through
+   `prepare_request`, so before that fix a manifest carrying a non-ASCII
+   character died with "HTTP::Message content must be bytes" without ever
+   reaching the cluster. That release requires IO::K8s 1.105 in turn.
 
 0.007     2026-04-15 18:21:50Z
  - Add `Net::Async::Kubernetes::Controller` as a minimal controller runtime.

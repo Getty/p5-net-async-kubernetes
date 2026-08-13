@@ -10,8 +10,8 @@ requires 'URI';
 requires 'IO::Socket::SSL';
 requires 'Protocol::WebSocket::Request';
 
-requires 'Kubernetes::REST', '1.102';
-requires 'IO::K8s', '1.008';
+requires 'Kubernetes::REST', '1.106';
+requires 'IO::K8s', '1.105';
 
 on test => sub {
     requires 'Test::More', '0.98';
