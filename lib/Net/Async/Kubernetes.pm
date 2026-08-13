@@ -1493,10 +1493,6 @@ __END__
 
 =encoding UTF-8
 
-=head1 NAME
-
-Net::Async::Kubernetes - Async Kubernetes client for IO::Async
-
 =head1 SYNOPSIS
 
     use IO::Async::Loop;

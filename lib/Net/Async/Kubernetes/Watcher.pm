@@ -347,10 +347,6 @@ __END__
 
 =encoding UTF-8
 
-=head1 NAME
-
-Net::Async::Kubernetes::Watcher - Auto-reconnecting Kubernetes watch as IO::Async::Notifier
-
 =head1 SYNOPSIS
 
     my $watcher = $kube->watcher('Pod',
