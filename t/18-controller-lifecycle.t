@@ -108,4 +108,51 @@ subtest 'a failed reconcile keeps its entry and its retry state' => sub {
     $loop->remove($kube);
 };
 
+subtest 'a retained entry does not keep the controller alive' => sub {
+    my $weak_controller;
+    my @attempts;
+
+    {
+        my $kube = make_kube();
+        $loop->add($kube);
+
+        MockTransport::mock_watch_events('/api/v1/namespaces/default/pods',
+            [ pod_added('pod-cycle', 300) ]);
+
+        my $controller = $kube->controller(
+            on_reconcile => sub {
+                my ($ctx) = @_;
+                push @attempts, $ctx->{attempt};
+                # compare against the weak alias and drive the controller
+                # through the ctx: capturing $controller in this callback
+                # would pin it by itself, the callback lives in the controller
+                is($ctx->{controller}, $weak_controller,
+                    'reconcile ctx carries a usable controller');
+                $ctx->{controller}->stop;
+                $loop->later(sub { $loop->stop });
+                return Future->fail('boom');
+            },
+        );
+        $weak_controller = $controller;
+        weaken($weak_controller);
+
+        $controller->watch_resource('Pod', namespace => 'default');
+
+        my $guard = $loop->watch_time(after => 5, code => sub { $loop->stop });
+        $loop->run;
+        $loop->unwatch_time($guard);
+
+        is_deeply(\@attempts, [1], 'reconcile ran once and failed');
+        is(scalar keys %{ $controller->{entries} }, 1,
+            'the failed entry is still there, so the cycle is under test');
+
+        $loop->remove($kube);
+    }
+
+    # controller -> {entries} -> {ctx} -> controller is a cycle the controller
+    # closes on itself: no outside reference has to survive for it to leak.
+    ok(!defined $weak_controller,
+        'controller freed although an entry still holds its reconcile ctx');
+};
+
 done_testing;

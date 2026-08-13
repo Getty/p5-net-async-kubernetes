@@ -160,9 +160,12 @@ sub _enqueue_event {
         key        => $key,
         attempt    => ($entry->{failures} // 0) + 1,
     };
-    # The ctx outlives the reconcile in {entries}; a strong client ref here
-    # would restore the kube -> controller -> kube cycle weakened above.
+    # The ctx outlives the reconcile in {entries} whenever the key still has
+    # work pending, so neither ref may be strong: the client would restore the
+    # kube -> controller -> kube cycle weakened above, and the controller
+    # would close controller -> entries -> ctx -> controller on itself.
     weaken($entry->{ctx}{kube});
+    weaken($entry->{ctx}{controller});
 
     if ($entry->{active}) {
         $entry->{dirty} = 1;
@@ -459,7 +462,10 @@ built this way is owned by the controller.
 =item C<on_reconcile>
 
 Required reconcile callback. Receives a hashref with C<controller>, C<kube>,
-C<resource>, C<event_type>, C<object>, C<key>, and C<attempt>.
+C<resource>, C<event_type>, C<object>, C<key>, and C<attempt>. C<controller>
+and C<kube> are weak references. Both are valid for the whole reconcile,
+including anything chained onto the C<Future> it returns, but a context kept
+past that keeps neither object alive.
 
 =item C<on_watch_error>
 

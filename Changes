@@ -20,6 +20,13 @@ Revision history for Net-Async-Kubernetes
    way. Keys that are still queued, dirty or waiting on a retry keep their
    entry, so backoff history is never lost and the next failure does not
    restart at attempt 1.
+ - Fix a second reference cycle in the controller, this one closed on itself:
+   the reconcile context stored in an entry held a strong `controller`, and
+   the entry lives in the controller. Any entry outliving its reconcile --
+   a failed key, a pending retry, anything still queued at shutdown -- leaked
+   the controller with no outside reference involved. `controller` in the
+   context is now weak, like `kube`. It stays valid for the whole reconcile;
+   a context kept past that no longer keeps the controller alive.
  - Fix the duplex transport reporting `port_forward` in its "not added to an
    IO::Async::Loop" failure regardless of which method was called; `exec()`
    and `attach()` now name themselves.
