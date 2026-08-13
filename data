@@ -1,0 +1,18 @@
+---
+claimed_at: 2026-08-13T03:33:29Z
+claimed_by: nak-worker
+class: standard
+completed: 2026-08-13T03:33:29Z
+created: 2026-08-13T00:31:32Z
+id: 12
+priority: medium
+started: 2026-08-13T03:23:04Z
+status: done
+tags:
+- deps
+- release
+title: Second dependency bump once IO::K8s 1.106 ships
+updated: 2026-08-13T03:33:29Z
+---
+
+Follow-up to 7. Pinning IO::K8s 1.105 does not buy NAK the api_group fix for the Storagemigration and Apiserverinternal groups, nor the _expand_class CamelCase-prefix fix for KubeAggregator APIService and friends -- both sit under NEXT in ../io-k8s-p5 and are unreleased. NAK passes those classes through, so the pin should move again once 1.106 is on CPAN. That release also unblocks 8 (qualified GVK names). Verify with cpanm --info before pinning; the repo VERSION is always one ahead.
