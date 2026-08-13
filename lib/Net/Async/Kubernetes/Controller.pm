@@ -539,11 +539,18 @@ controller is added to an event loop.
 
 =method stop
 
-Stops registered watches and prevents further queue processing. Pending work is
-dropped with them: the workqueue is cleared and any retry timer is cancelled,
-because a restart re-lists through fresh watches and delivers everything still
-present again. A key's failure count survives, so a key that was retrying picks
-up at its next attempt number rather than at attempt 1.
+Stops registered watches and prevents further queue processing. Each stopped
+watch is also detached from the client it was registered on, so a watcher
+handle a caller kept from C<watch_resource> does not survive its controller's
+C<stop>: it is no longer attached to anything, calling C<start> on it directly
+drives a notifier with no loop, and the controller's own C<start> builds a
+fresh watcher for the spec regardless. Do not hold on to a watcher handle past
+a C<stop>.
+
+Pending work is dropped with them: the workqueue is cleared and any retry timer
+is cancelled, because a restart re-lists through fresh watches and delivers
+everything still present again. A key's failure count survives, so a key that
+was retrying picks up at its next attempt number rather than at attempt 1.
 
 =method watch_resource
 
