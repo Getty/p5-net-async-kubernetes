@@ -1,0 +1,18 @@
+---
+claimed_at: 2026-08-13T02:18:21Z
+claimed_by: nak-pod-writer
+class: standard
+completed: 2026-08-13T02:18:21Z
+created: 2026-08-13T02:07:08Z
+id: 18
+priority: low
+started: 2026-08-13T02:08:46Z
+status: done
+tags:
+- docs
+- pod
+title: 'POD: stop() does not mention that watches are detached'
+updated: 2026-08-13T02:18:21Z
+---
+
+Fallout from 17. The =method stop POD in Controller.pm says it stops registered watches and drops pending work, which is still accurate but no longer complete: a stopped watch is now also detached from the client, so a watcher handle a caller kept from watch_resource is left without a parent. Related sharp edge worth a sentence: calling start on such a stale handle drives a loop-less notifier, and the controllers own start() builds a fresh watcher regardless, so keeping the handle across a stop is not useful. Lane: nak-pod-writer.
