@@ -155,4 +155,52 @@ subtest 'a retained entry does not keep the controller alive' => sub {
         'controller freed although an entry still holds its reconcile ctx');
 };
 
+subtest 'a key queued when the controller stops reconciles after a restart' => sub {
+    my $kube = make_kube();
+    $loop->add($kube);
+
+    MockTransport::mock_watch_events('/api/v1/namespaces/default/pods',
+        [ pod_added('pod-restart', 400) ]);
+
+    my @reconciled;
+    my $controller = $kube->controller(
+        on_reconcile => sub {
+            my ($ctx) = @_;
+            push @reconciled, $ctx->{key};
+            $loop->later(sub { $loop->stop });
+            return;
+        },
+    );
+    $controller->watch_resource('Pod', namespace => 'default');
+
+    # The mock delivers the watch event from a later(), and the enqueue in that
+    # same tick schedules the drain with another later() - so a stop queued
+    # here lands after the key is queued and before it is drained.
+    $loop->later(sub {
+        is(scalar @reconciled, 0, 'stop lands before the queued key drains');
+        is(scalar @{ $controller->{queue} }, 1, 'the key is queued at stop time');
+
+        $controller->stop;
+
+        is(scalar @{ $controller->{queue} }, 0, 'stop leaves no key in the queue');
+        ok(!$controller->{entries}{'default/pod-restart'}{queued},
+            'stop clears the queued flag together with the queue');
+
+        $loop->later(sub { $controller->start });
+    });
+
+    my $guard = $loop->watch_time(after => 2, code => sub { $loop->stop });
+    $loop->run;
+    $loop->unwatch_time($guard);
+    $controller->stop;
+
+    # The restarted watch re-lists and delivers the object again. A key left
+    # flagged queued makes that event return early without scheduling a drain,
+    # so it sits in the queue until some unrelated key drags it out.
+    is_deeply(\@reconciled, ['default/pod-restart'],
+        'the key reconciles again after the restart');
+
+    $loop->remove($kube);
+};
+
 done_testing;

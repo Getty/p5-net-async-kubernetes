@@ -40,6 +40,14 @@ Revision history for Net-Async-Kubernetes
    `patch_status()` now return a failed `Future` naming the resource, keeping
    the contract their callers await on. The two genuinely synchronous paths,
    `$kube->expand_class` and starting a watcher, croak with the same message.
+ - Fix a controller key stalling after a stop/start cycle. `stop()` cleared the
+   retry timers but left the workqueue filled and the keys on it flagged as
+   queued, so the event a restarted watch delivers for such a key was
+   deduplicated away without ever scheduling a drain -- the key then waited for
+   an unrelated key to drag it out of the queue. `stop()` now clears the queue
+   and those flags together: a restart re-lists and delivers everything still
+   present anyway, and the failure counts stay behind, so a retrying key still
+   resumes at its next attempt number.
  - Require `Kubernetes::REST` 1.106 (was 1.102) and `IO::K8s` 1.105 (was
    1.008). Kubernetes::REST 1.106 encodes request bodies as UTF-8 bytes;
    every `create`, `update` and `patch` here builds its body through

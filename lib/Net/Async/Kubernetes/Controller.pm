@@ -95,8 +95,16 @@ sub stop {
         $watcher->stop;
     }
 
-    for my $key (keys %{ $self->{entries} || {} }) {
-        delete $self->{entries}{$key}{retry_future};
+    # A restart re-lists through fresh watches, so everything still alive
+    # arrives again as ADDED: what was pending is a stale snapshot, and a key
+    # left flagged queued makes that new event return early without ever
+    # scheduling a drain. Queue and flags go together - a key in the queue
+    # without its flag, or a flag without the queue entry, is a stall either
+    # way. The entries themselves stay: they carry the failure counts.
+    $self->{queue} = [];
+    for my $entry (values %{ $self->{entries} || {} }) {
+        delete $entry->{retry_future};
+        $entry->{queued} = 0;
     }
 }
 
@@ -506,7 +514,11 @@ controller is added to an event loop.
 
 =method stop
 
-Stops registered watches and prevents further queue processing.
+Stops registered watches and prevents further queue processing. Pending work is
+dropped with them: the workqueue is cleared and any retry timer is cancelled,
+because a restart re-lists through fresh watches and delivers everything still
+present again. A key's failure count survives, so a key that was retrying picks
+up at its next attempt number rather than at attempt 1.
 
 =method watch_resource
 
