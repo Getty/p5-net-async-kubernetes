@@ -216,6 +216,14 @@ sub _drain_queue {
                 $entry->{queued} = 1;
                 push @{ $self->{queue} }, $key;
             }
+            elsif (!$entry->{retry_future}) {
+                # Clean reconcile: nothing queued, nothing dirty, no backoff
+                # left to remember. Keeping the entry would hold one hashref
+                # plus its ctx per key seen, for the lifetime of the process.
+                # A DELETED event needs no case of its own - its reconcile
+                # ends here like any other.
+                delete $self->{entries}{$key};
+            }
         } else {
             $entry->{dirty} = 0;
             $entry->{failures} = ($entry->{failures} // 0) + 1;
@@ -506,7 +514,9 @@ Stops registered watches and prevents further queue processing.
 
 Registers a watched resource and returns the watcher instance once started.
 Repeated events for the same reconcile key are coalesced into a single queued
-entry.
+entry. A key's entry is dropped once it reconciles cleanly, so the queue does
+not grow with the number of objects seen; a key that is still queued, dirty or
+retrying keeps its entry, and with it its C<attempt> count.
 
 =method get_object
 

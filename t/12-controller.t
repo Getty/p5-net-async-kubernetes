@@ -127,7 +127,10 @@ subtest 'reconcile context does not keep the client alive' => sub {
                 is($ctx->{kube}, $weak_kube, 'reconcile ctx carries the client');
                 $controller->stop;
                 $loop->later(sub { $loop->stop });
-                return;
+                # fail so the entry keeps its ctx: a cleanly reconciled key is
+                # dropped from {entries}, which would leave nothing to retain
+                # the client and make this test pass for the wrong reason
+                return Future->fail('keep the entry');
             },
         );
         $controller->watch_resource('Pod', namespace => 'default');
@@ -139,6 +142,8 @@ subtest 'reconcile context does not keep the client alive' => sub {
         is_deeply(\@keys, ['default/pod-ctx'], 'reconcile ran once');
 
         # the ctx stays behind in the controller entries after the reconcile
+        is(scalar keys %{ $controller->{entries} }, 1,
+            'entry retained, so the ctx is what holds the client here');
         $loop->remove($kube);
     }
 

@@ -12,6 +12,14 @@ Revision history for Net-Async-Kubernetes
    registers the controller as a child, so neither was ever freed. A supplied
    client is now weakened, as in `Net::Async::Kubernetes::Watcher`; a client
    the controller constructs itself stays owned by it.
+ - Fix the controller keeping one workqueue entry per reconcile key for the
+   lifetime of the process. Nothing ever removed an entry, so a controller on
+   a high churn resource grew its keyspace without bound, each entry pinning
+   the last object it saw. A key is now dropped once it reconciles cleanly --
+   a `DELETED` event needs no case of its own, its reconcile ends the same
+   way. Keys that are still queued, dirty or waiting on a retry keep their
+   entry, so backoff history is never lost and the next failure does not
+   restart at attempt 1.
  - Fix the duplex transport reporting `port_forward` in its "not added to an
    IO::Async::Loop" failure regardless of which method was called; `exec()`
    and `attach()` now name themselves.
