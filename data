@@ -1,0 +1,18 @@
+---
+claimed_at: 2026-08-13T02:33:34Z
+claimed_by: nak-pod-writer
+class: standard
+completed: 2026-08-13T02:33:34Z
+created: 2026-08-13T02:18:46Z
+id: 20
+priority: low
+started: 2026-08-13T02:21:49Z
+status: done
+tags:
+- docs
+- pod
+title: PortForwardSession has no POD of its own, SEE ALSO incomplete
+updated: 2026-08-13T02:33:34Z
+---
+
+Fallout from 13. The class is now an indexed CPAN module, so it gets its own metacpan page - but it carries no POD beyond the ABSTRACT, meaning the page would be PodWeaver boilerplate. It has a real public surface worth documenting: new, write_channel, write_stdin, resize, close. While in there: the SEE ALSO in Kubernetes.pm around line 1705 lists Watcher but neither Controller nor PortForwardSession. Lane: nak-pod-writer.
