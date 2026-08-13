@@ -1,0 +1,18 @@
+---
+claimed_at: 2026-08-13T02:07:18Z
+claimed_by: nak-worker
+class: standard
+completed: 2026-08-13T02:07:18Z
+created: 2026-08-13T01:50:31Z
+id: 17
+priority: medium
+started: 2026-08-13T01:52:01Z
+status: done
+tags:
+- leak
+- controller
+title: stop() leaks a watcher child per stop/start cycle
+updated: 2026-08-13T02:07:18Z
+---
+
+Found while fixing 14. stop() deletes the watcher from the spec and stops it, but never remove_child()s it from the client, while kube->watcher(...) did add_child. Every stop/start cycle therefore adds another watcher notifier to the client children while the stopped ones stay attached. Harmless for a single restart, unbounded for a controller restarted repeatedly, and it also keeps the stopped watchers reachable. Fix is to remove_child on stop; check whether the watcher can be reused instead of rebuilt on start. Test: count the client children across several stop/start cycles.
