@@ -19,8 +19,8 @@ provides the typed objects. `$VERSION` is hand-written in every module; dzil bum
   `port_forward`/`exec`/`attach` → session, `cp_to_pod`/`cp_from_pod` →
   `{local,remote,bytes,stderr,status}`. Non-Future: `expand_class`, `watcher(...)`,
   `controller(...)` (both `add_child` the returned notifier).
-- **`Net::Async::Kubernetes::PortForwardSession`** — inline package at the bottom of
-  `Kubernetes.pm` (not its own file). Blessed hashref around `ws_client`:
+- **`Net::Async::Kubernetes::PortForwardSession`** (`lib/.../PortForwardSession.pm`) —
+  own file since 0.008, `use`d from `Kubernetes.pm`. Blessed hashref around `ws_client`:
   `write_channel($ch,$payload)`, `write_stdin`, `resize(width=>,height=>)` (channel 4
   JSON), `close($code?,$payload?)`; aliases `write`/`stdin`.
 - **`Net::Async::Kubernetes::Watcher`** — Notifier; auto-reconnecting watch stream.
@@ -28,8 +28,9 @@ provides the typed objects. `$VERSION` is hand-written in every module; dzil bum
   `label_selector`, `field_selector`, `names`, `event_types`,
   `on_added/on_modified/on_deleted/on_error/on_event`. `start` idempotent; `stop`.
 - **`Net::Async::Kubernetes::Controller`** — Notifier; minimal controller runtime.
-  Config: `kube` OR client-construction keys (builds its own client), `on_reconcile`
-  (required), `retry_delay` (scalar|arrayref|coderef, default 1). API:
+  Config: `kube` (**weak ref**) OR client-construction keys (builds its own client,
+  held strongly — it owns that one), `on_reconcile` (required), `on_watch_error`,
+  `retry_delay` (scalar|arrayref|coderef, default 1). API:
   `watch_resource($resource, %watcher_args, key_for=>sub)`, `start`/`stop`,
   `get_object`/`list_objects` (thin `$kube->` wrappers), `patch_status` (PATCH
   `.../status`, default type `merge`), `update_status` (PUT `$object->TO_JSON`).
@@ -51,6 +52,12 @@ Use only the public building blocks: `expand_class`, `build_path`, `prepare_requ
 `check_response` (croaks on status ≥ 400 — inside `->then` that becomes a failed
 Future), `inflate_object`, `inflate_list`, `process_watch_chunk`, `process_log_chunk`.
 Never reach for `_`-prefixed Kubernetes::REST internals.
+
+`expand_class` **fails closed**: a qualified `"group/version/Kind"` that is not in the
+resource map returns `undef` (a bare unknown `Kind` still falls back to `IO::K8s::$Kind`).
+Every call site guards it — `Future->fail("unknown resource …")` where the contract is a
+Future, `croak` on the two synchronous paths (`$kube->expand_class`, starting a watcher).
+Unguarded, that `undef` reaches `build_path` and dies with "argument is not a module name".
 
 `_do_request` wraps the HTTP::Response back into `Kubernetes::REST::HTTPResponse` —
 that re-wrap is the seam mocks and live transport share. `_do_streaming_request` is
@@ -82,6 +89,13 @@ empty content). Override points the test harness replaces: `_do_request`,
 - Workqueue: key = `key_for->($object,$spec)` else `"ns/name"`. Newest event
   overwrites the queued entry's ctx (latest state wins); `active` entries get
   `dirty=1` and requeue after the in-flight reconcile; `queued` dedups.
+- Entry lifetime: an entry is **dropped once its key reconciles cleanly** (nothing
+  queued, dirty or retrying) — `{entries}` is not a cache, it is pending work.
+  A failed key keeps entry, `failures` and armed retry, so backoff survives.
+  `DELETED` needs no case of its own; its reconcile ends in the same branch.
+- The drain **skips** a queued key whose entry is gone instead of abandoning the
+  rest of the queue. Unreachable today; it guards the next change to the prune
+  conditions.
 - **Reconciles are globally serialized** (`active_key`) — one in flight per
   controller, not per key; long reconciles head-of-line block everything.
 - Reconcile return: die → failed Future; non-Future → done. Failure increments
@@ -89,7 +103,18 @@ empty content). Override points the test harness replaces: `_do_request`,
   arrayref indexed by attempt, scalar; 0/false ⇒ hot `$loop->later` requeue). No
   attempt cap, no jitter.
 - ctx hashref: `{controller, kube, resource, event_type, object, key, attempt}`.
-- Watch ERROR events are **not** wired to the controller (only added/modified/deleted).
+  `controller` and `kube` are **weak** — the ctx outlives the reconcile inside the
+  entry, and both would otherwise cycle (`kube → children → controller → kube`, and
+  `controller → entries → ctx → controller` closing on itself). Valid for the whole
+  reconcile including chained Futures; a ctx kept past that keeps nothing alive.
+- Watch ERROR events reach `on_watch_error($error, {controller,kube,resource})`, not
+  the workqueue — they carry a raw `Status` hashref with no key to dedup on. An
+  `on_error` passed to `watch_resource` takes precedence for that watch.
+- `stop` is teardown, not pause: it stops each watch **and detaches it from the
+  client** (`remove_from_parent` — `kube->watcher` had `add_child`ed it), clears the
+  queue plus the `queued`/`dirty` flags, and drops retry timers. Failure counts stay.
+  A restart builds fresh watchers that re-LIST, so a watcher handle kept from
+  `watch_resource` is worthless after a `stop`.
 - `watch_resource` before the controller is started returns `undef` (spec is stored,
   watcher starts on `start`).
 
@@ -176,7 +201,7 @@ or a live one from the kubeconfig; both added to the process-wide memoized `loop
 - `sub delete`/`exec`/`log` shadow builtins in the client package (and `close` in
   PortForwardSession) — fine as methods, but bareword calls inside those packages hit
   CORE.
-- cpanfile pins: `Kubernetes::REST >= 1.102`, `IO::K8s >= 1.008`, `IO::Async >= 0.80`,
+- cpanfile pins: `Kubernetes::REST >= 1.106`, `IO::K8s >= 1.105`, `IO::Async >= 0.80`,
   `Net::Async::HTTP >= 0.49`, `Net::Async::WebSocket::Client >= 0.14`, perl 5.020.
   Both K8s deps are Getty dists — pin released CPAN versions only (skill `perl-core`).
 - POD style is inline `=method`/`=attr` next to the sub (`Kubernetes.pm`,

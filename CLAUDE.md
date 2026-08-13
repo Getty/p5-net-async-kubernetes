@@ -13,6 +13,8 @@ Uses Dist::Zilla with `[@Author::GETTY]` plugin bundle.
 - `lib/Net/Async/Kubernetes/Watcher.pm` - Auto-reconnecting watch stream
 - `lib/Net/Async/Kubernetes/Controller.pm` - Minimal controller runtime: watch
   registration, keyed workqueue dedup, serialized reconcile dispatch, retry hooks
+- `lib/Net/Async/Kubernetes/PortForwardSession.pm` - Duplex websocket session
+  returned by port_forward / exec / attach
 - `eg/demo.pl` - Comprehensive idempotent demo (requires minikube)
 - `eg/watch_pods.pl` - Simple watcher example
 - `eg/live_features.pl` - Live demo of exec/attach/cp/port-forward features
