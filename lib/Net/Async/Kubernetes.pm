@@ -1633,7 +1633,8 @@ running inside a Kubernetes pod)
 
 =head1 SEE ALSO
 
-L<Net::Async::Kubernetes::Watcher>, L<Kubernetes::REST>, L<IO::Async>,
-L<IO::K8s>, L<Net::Async::WebSocket::Client>
+L<Net::Async::Kubernetes::Watcher>, L<Net::Async::Kubernetes::Controller>,
+L<Net::Async::Kubernetes::PortForwardSession>, L<Kubernetes::REST>,
+L<IO::Async>, L<IO::K8s>, L<Net::Async::WebSocket::Client>
 
 =cut

@@ -11,6 +11,22 @@ sub new {
     return bless \%args, $class;
 }
 
+=method new
+
+    my $session = Net::Async::Kubernetes::PortForwardSession->new(
+        ws_client => $ws_client,
+    );
+
+Wraps an already-connected websocket client (normally a
+L<Net::Async::WebSocket::Client>) as a session. C<ws_client> is required.
+
+Callers do not normally build a session this way: the C<Future> returned by
+L<Net::Async::Kubernetes/port_forward>, L<Net::Async::Kubernetes/exec>, and
+L<Net::Async::Kubernetes/attach> resolves to one, already bound to the open
+connection, and it is what those methods pass to an C<on_open> callback.
+
+=cut
+
 sub ws_client { $_[0]->{ws_client} }
 
 sub write_channel {
@@ -26,10 +42,47 @@ sub write_channel {
     return $self->ws_client->send_binary_frame(chr($channel) . $payload);
 }
 
+=method write_channel
+
+    $session->write_channel(0, "id\n");
+
+Send C<$payload> as a single binary websocket frame on the given Kubernetes
+stream C<$channel>, with the channel number prepended as the frame's first
+byte (C<chr($channel) . $payload>). C<$channel> is required and must be an
+integer between 0 and 255; C<$payload> defaults to the empty string.
+
+C<write_channel> itself does not know what any channel number means, it only
+frames whatever it is given, but the Kubernetes exec/attach/port-forward
+sub-protocol fixes their meaning: 0 is stdin, 1 is stdout, 2 is stderr, 3
+carries an error/status JSON document, and 4 carries TTY resize events (see
+L</resize>). C<on_frame>, passed to L<Net::Async::Kubernetes/exec> and
+friends, decodes incoming frames the same way in reverse.
+
+Returns the L<Future> from the underlying C<ws_client>'s
+C<send_binary_frame> - an L<IO::Async::Stream> write-future that completes
+with no value once the frame has been flushed to the connection.
+
+Aliased as C<write>.
+
+=cut
+
 sub write_stdin {
     my ($self, $payload) = @_;
     return $self->write_channel(0, $payload);
 }
+
+=method write_stdin
+
+    $session->write_stdin("id\n");
+
+Shortcut for C<< $session->write_channel(0, $payload) >> - writes to channel
+0, the stdin stream of an exec or attach session's remote process.
+
+Returns the L<Future> from the underlying C<write_channel> call.
+
+Aliased as C<stdin>.
+
+=cut
 
 {
     no warnings 'once';
@@ -54,6 +107,20 @@ sub resize {
     return $self->write_channel(4, $payload);
 }
 
+=method resize
+
+    $session->resize(width => 120, height => 40);
+    $session->resize(cols  => 120, rows   => 40);   # cols/rows are accepted too
+
+Send a TTY resize event on channel 4, as a C<{"Width":$width,"Height":$height}>
+JSON payload. C<width> and C<height> (or their C<cols>/C<rows> aliases) are
+required and must be positive integers. Only meaningful for a session opened
+with C<tty =E<gt> 1>.
+
+Returns the L<Future> from the underlying C<write_channel> call.
+
+=cut
+
 sub close {
     my ($self, %args) = @_;
     my $code = $args{code};
@@ -69,4 +136,66 @@ sub close {
     return $ret;
 }
 
+=method close
+
+    $session->close(code => 1000, payload => 'bye');
+    $session->close;   # close frame with no code
+
+Send a websocket close frame, ending the session. C<code>, if given, must be
+a websocket close code between 1000 and 4999; it is packed as a 16-bit
+big-endian prefix (C<pack('n', $code)>) ahead of C<payload>, which defaults
+to the empty string. Once the close frame is sent, the underlying transport
+is also asked to close the connection once its write buffer drains
+(C<close_when_empty>), if the transport supports that method.
+
+Returns the L<Future> from the underlying C<ws_client>'s C<send_close_frame>
+- an L<IO::Async::Stream> write-future that completes with no value once the
+close frame has been flushed to the connection.
+
+=cut
+
 1;
+
+__END__
+
+=encoding UTF-8
+
+=head1 SYNOPSIS
+
+    my $session = $kube->exec('Pod', 'my-pod',
+        namespace => 'default',
+        command   => ['sh'],
+        tty       => 1,
+        on_frame  => sub {
+            my ($channel, $payload) = @_;
+            print $payload if $channel == 1;   # stdout
+        },
+    )->get;
+
+    $session->write_stdin("id\n");
+    $session->resize(width => 120, height => 40);
+    $session->close(code => 1000);
+
+=head1 DESCRIPTION
+
+A duplex session handle for the Kubernetes exec/attach/port-forward
+websocket sub-protocol (C<v4.channel.k8s.io> by default). Every frame on the
+wire carries a channel number as its first byte, identifying which logical
+stream - stdin, stdout, stderr, error/status, or TTY resize - the rest of the
+frame belongs to. C<write_channel> is the primitive that builds such a
+frame; C<write_stdin> and C<resize> are convenience wrappers over channels 0
+and 4 respectively.
+
+Callers do not normally construct this class themselves: it is what
+L<Net::Async::Kubernetes/port_forward>, L<Net::Async::Kubernetes/exec>, and
+L<Net::Async::Kubernetes/attach> resolve their returned C<Future> with, and
+what they pass to an C<on_open> callback if one was given. Incoming frames
+are not read through this object; they arrive via the C<on_frame> callback
+passed to those methods, already decoded into C<($channel, $payload)> pairs.
+
+=head1 SEE ALSO
+
+L<Net::Async::Kubernetes>, L<Net::Async::WebSocket::Client>,
+L<IO::Async::Stream>
+
+=cut
