@@ -1,6 +1,13 @@
 Revision history for Net-Async-Kubernetes
 
 {{$NEXT}}
+ - Move `Net::Async::Kubernetes::PortForwardSession` into its own file. The
+   class was declared inline at the bottom of `Net::Async::Kubernetes`, so the
+   provides map pointed at a file that does not carry its name and every
+   `dzil build` warned it may not be loadable at install time -- and indeed
+   `use Net::Async::Kubernetes::PortForwardSession` failed for anyone loading
+   the class the POD of `port_forward()`, `exec()` and `attach()` names. The
+   code is unchanged and the client loads it at compile time.
  - Add `on_watch_error` to `Net::Async::Kubernetes::Controller`. Watch `ERROR`
    events (a `403` arriving mid-stream, for example) were wired nowhere and
    stayed invisible to the controller. They carry a `Status` hashref rather
