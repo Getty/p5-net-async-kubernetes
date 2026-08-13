@@ -48,6 +48,10 @@ Revision history for Net-Async-Kubernetes
    and those flags together: a restart re-lists and delivers everything still
    present anyway, and the failure counts stay behind, so a retrying key still
    resumes at its next attempt number.
+ - Fix the reconcile drain abandoning the whole queue when it meets a queued
+   key whose entry is gone, instead of skipping that one key. The state is not
+   reachable today -- an entry is only dropped while its key is not queued --
+   but it made loosening that condition a silent stall for every key behind it.
  - Require `Kubernetes::REST` 1.106 (was 1.102) and `IO::K8s` 1.105 (was
    1.008). Kubernetes::REST 1.106 encodes request bodies as UTF-8 bytes;
    every `create`, `update` and `patch` here builds its body through

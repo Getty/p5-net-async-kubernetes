@@ -203,4 +203,41 @@ subtest 'a key queued when the controller stops reconciles after a restart' => s
     $loop->remove($kube);
 };
 
+subtest 'a queued key without an entry does not abandon the drain' => sub {
+    my $kube = make_kube();
+    $loop->add($kube);
+
+    MockTransport::mock_watch_events('/api/v1/namespaces/default/pods',
+        [ pod_added('pod-behind', 500) ]);
+
+    my @reconciled;
+    my $controller = $kube->controller(
+        on_reconcile => sub {
+            my ($ctx) = @_;
+            push @reconciled, $ctx->{key};
+            $loop->later(sub { $loop->stop });
+            return;
+        },
+    );
+    $controller->watch_resource('Pod', namespace => 'default');
+
+    # Constructed state: the runtime cannot reach it today, because an entry is
+    # only dropped while its key is not queued and the queued flag keeps a key
+    # at most once in the queue. It is put here on purpose - whoever loosens
+    # those conditions has to find the drain skipping the stale key rather than
+    # dropping the rest of the queue with it.
+    push @{ $controller->{queue} }, 'default/ghost';
+
+    my $guard = $loop->watch_time(after => 2, code => sub { $loop->stop });
+    $loop->run;
+    $loop->unwatch_time($guard);
+    $controller->stop;
+
+    is_deeply(\@reconciled, ['default/pod-behind'],
+        'the key queued behind the stale one still reconciles');
+    is(scalar @{ $controller->{queue} }, 0, 'the stale key left the queue');
+
+    $loop->remove($kube);
+};
+
 done_testing;

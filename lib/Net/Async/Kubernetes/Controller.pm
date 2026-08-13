@@ -200,9 +200,22 @@ sub _drain_queue {
     my ($self) = @_;
     return if $self->{stopped} || $self->{active_key};
 
-    my $key = shift @{ $self->{queue} || [] } or return;
-    my $entry = $self->{entries}{$key} or return;
-    my $ctx = $entry->{ctx} or return;
+    my ($key, $entry);
+    while (defined(my $candidate = shift @{ $self->{queue} || [] })) {
+        my $next = $self->{entries}{$candidate};
+        # A queued key whose entry or ctx is gone has nothing to reconcile.
+        # Skip it and take the next one: returning here would leave the rest
+        # of the queue sitting until an unrelated key schedules the next
+        # drain. Clear the flag so the key can be queued again later.
+        if (!$next || !$next->{ctx}) {
+            $next->{queued} = 0 if $next;
+            next;
+        }
+        ($key, $entry) = ($candidate, $next);
+        last;
+    }
+    return unless $entry;
+    my $ctx = $entry->{ctx};
 
     $entry->{queued} = 0;
     $entry->{active} = 1;
