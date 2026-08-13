@@ -1,0 +1,20 @@
+---
+claimed_at: 2026-08-13T01:03:28Z
+claimed_by: nak-worker
+class: standard
+completed: 2026-08-13T01:03:28Z
+created: 2026-08-12T19:44:30Z
+id: 9
+priority: high
+started: 2026-08-13T00:00:10Z
+status: done
+tags:
+- bug
+- error-handling
+- io-k8s
+title: expand_class can now return undef (fail-closed) — NAK dies synchronously with
+  a cryptic message
+updated: 2026-08-13T01:03:28Z
+---
+
+io-k8s-p5 HEAD makes expand_class fail closed: an unknown/malformed/mismatched apiVersion returns undef instead of silently picking a bare-name schema. NAK passes the result straight into build_path at Kubernetes.pm:251,298,434,520,593,700,793,882, Controller.pm:290 and Watcher.pm:229. Reproduced: $kube->_rest->expand_class("bogus.io/v9/Pod") => undef, then build_path(undef) dies "argument is not a module name". Two defects: (1) the message names neither the resource nor the reason, (2) it is a synchronous die inside methods whose contract is to return a Future — callers awaiting list()/get() get an exception instead of a failed Future. Guard the expand_class result and return Future->fail("unknown resource $short_class") (croak for the genuinely sync paths). Regression test belongs in the mock harness. Lane: nak-worker + nak-test-writer.
