@@ -1,0 +1,18 @@
+---
+claimed_at: 2026-08-13T02:43:09Z
+claimed_by: nak-worker
+class: standard
+completed: 2026-08-13T02:43:09Z
+created: 2026-08-13T02:36:03Z
+id: 21
+priority: medium
+started: 2026-08-13T02:36:28Z
+status: done
+tags:
+- cleanup
+- perl-core
+title: Lazy require for Watcher and Controller inside the methods
+updated: 2026-08-13T02:43:09Z
+---
+
+Kubernetes.pm around lines 1205 and 1220 loads Watcher and Controller with a require inside watcher() and controller(), the pattern perl-core forbids as a lazy optimization. PortForwardSession was just moved to a top-level use for the same reason. Caution: check first whether these are deliberate cycle avoidance -- Controller::configure itself does require Net::Async::Kubernetes to build its own client, so a plain use at the top of Kubernetes.pm may close a load cycle. If it turns out to be deliberate, the fix is a comment saying so, not a change.
