@@ -104,11 +104,15 @@ sub stop {
     # left flagged queued makes that new event return early without ever
     # scheduling a drain. Queue and flags go together - a key in the queue
     # without its flag, or a flag without the queue entry, is a stall either
-    # way. The entries themselves stay: they carry the failure counts.
+    # way. A dirty flag is pending work as well - it records an event a
+    # reconcile in flight has not seen yet, and the re-list delivers that
+    # object again anyway. The entries themselves stay: they carry the failure
+    # counts.
     $self->{queue} = [];
     for my $entry (values %{ $self->{entries} || {} }) {
         delete $entry->{retry_future};
         $entry->{queued} = 0;
+        $entry->{dirty} = 0;
     }
 }
 
@@ -239,7 +243,11 @@ sub _drain_queue {
 
         if ($f->is_done) {
             delete $entry->{failures};
-            if ($entry->{dirty}) {
+            # Nothing enters the queue while stopped, here no more than
+            # anywhere else: the drain is off, so the key would sit in the
+            # queue stop() just emptied, and the ADDED a restart re-lists would
+            # return early on its queued flag without scheduling a drain.
+            if ($entry->{dirty} && !$self->{stopped}) {
                 $entry->{dirty} = 0;
                 $entry->{queued} = 1;
                 push @{ $self->{queue} }, $key;

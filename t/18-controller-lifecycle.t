@@ -240,6 +240,77 @@ subtest 'a queued key without an entry does not abandon the drain' => sub {
     $loop->remove($kube);
 };
 
+subtest 'an event arriving during a reconcile does not requeue past stop()' => sub {
+    my $kube = make_kube();
+    $loop->add($kube);
+
+    MockTransport::mock_watch_events('/api/v1/namespaces/default/pods',
+        [ pod_added('pod-dirty', 700) ]);
+
+    my $key = 'default/pod-dirty';
+    my @reconciled;
+    my ($controller, $watcher, $in_flight);
+
+    $controller = $kube->controller(
+        on_reconcile => sub {
+            my ($ctx) = @_;
+            push @reconciled, $ctx->{key};
+
+            if (@reconciled > 1) {   # the reconcile after the restart
+                $loop->later(sub { $loop->stop });
+                return;
+            }
+
+            # A second event for the same key, delivered while its reconcile is
+            # in flight: this is the watcher's own MODIFIED callback, the one
+            # the controller registered. _enqueue_event finds the key active
+            # and marks the entry dirty instead of queueing it.
+            $watcher->on_modified->($ctx->{object});
+
+            $loop->later(sub {
+                my $entry = $controller->{entries}{$key};
+                ok($entry->{dirty},
+                    'the event during the reconcile marked the key dirty');
+                is(scalar @{ $controller->{queue} }, 0,
+                    'a dirty key is not in the queue while it reconciles');
+
+                $controller->stop;
+
+                ok(!$entry->{dirty},
+                    'stop clears the dirty flag with the rest of the pending work');
+
+                # The reconcile finishes after the stop - the window the dirty
+                # requeue used to fire in.
+                $in_flight->done;
+
+                is(scalar @{ $controller->{queue} }, 0,
+                    'the finished reconcile queues nothing while stopped');
+                is(scalar keys %{ $controller->{entries} }, 0,
+                    'the cleanly reconciled key leaves no entry behind');
+
+                $loop->later(sub { $controller->start });
+            });
+
+            return $in_flight = $loop->new_future;
+        },
+    );
+    $watcher = $controller->watch_resource('Pod', namespace => 'default');
+
+    my $guard = $loop->watch_time(after => 2, code => sub { $loop->stop });
+    $loop->run;
+    $loop->unwatch_time($guard);
+    $controller->stop;
+
+    # A requeue landing after stop() puts the key back in the emptied queue and
+    # flags it queued, with no drain scheduled to take it out again. The event
+    # the restarted watch re-lists then returns early on that flag: the key
+    # never reconciles again.
+    is_deeply(\@reconciled, [$key, $key],
+        'the key reconciles again after the restart');
+
+    $loop->remove($kube);
+};
+
 subtest 'stop() leaves no watcher attached to the client' => sub {
     my $kube = make_kube();
     $loop->add($kube);

@@ -52,6 +52,14 @@ Revision history for Net-Async-Kubernetes
    key whose entry is gone, instead of skipping that one key. The state is not
    reachable today -- an entry is only dropped while its key is not queued --
    but it made loosening that condition a silent stall for every key behind it.
+ - Fix that same stall returning through the requeue of a dirty key. An event
+   arriving while its key reconciles is recorded as dirty instead of queued,
+   and the requeue once that reconcile finished pushed the key back without
+   checking whether the controller had stopped meanwhile -- refilling the
+   queue `stop()` had just emptied, with no drain scheduled to take it out
+   again. The requeue now skips while stopped, like every other place that
+   feeds the queue, and `stop()` clears the dirty flag along with the queued
+   one: it is pending work too, and the restart re-lists that object anyway.
  - Fix `stop()` leaving a watcher attached to the client on every stop/start
    cycle. `$kube->watcher(...)` registers the watcher as a child of the client,
    and `stop()` stopped it and dropped it from the watch spec without the
