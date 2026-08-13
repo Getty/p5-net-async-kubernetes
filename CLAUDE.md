@@ -35,6 +35,11 @@ Dual-mode architecture (`t/lib/MockTransport.pm`, `t/lib/TestKube.pm`) — the s
 tests run against mock or live cluster. Live mode mutates the target cluster; details
 and guardrails in `.claude/rules/nak-rules.md`.
 
+**A new test file must be `git add`ed before `dzil test` runs it.** The bundle
+gathers via `Git::GatherDir`, so an untracked `t/*.t` is silently left out of the
+build — `dzil test` then reports a green run that never executed the new file. Use
+`git add -N t/NN-name.t` (intent-to-add, no commit) as soon as the file exists.
+
 ## Delegation
 
 Delegate behavior-relevant code to the right agent instead of touching it yourself —
