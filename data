@@ -1,0 +1,17 @@
+---
+claimed_at: 2026-08-13T01:03:38Z
+claimed_by: nak-pod-writer
+class: standard
+completed: 2026-08-13T01:03:38Z
+created: 2026-08-12T18:43:53Z
+id: 6
+priority: low
+started: 2026-08-12T22:11:06Z
+status: done
+tags:
+- docs
+title: cp helpers claim tar streaming; implementation is head -c/cat
+updated: 2026-08-13T01:03:38Z
+---
+
+Changes 0.006/0.007 say 'stream tar archives through an exec session'; cp_to_pod uses sh -c 'head -c ...' and cp_from_pod uses cat — single files, fully in-memory, no tar. Reconcile: fix wording in POD/README (Changes of released versions stay), or implement real tar-based recursive cp as a feature. Lane: nak-worker + nak-pod-writer.
