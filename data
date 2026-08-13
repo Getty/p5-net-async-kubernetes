@@ -1,0 +1,17 @@
+---
+claimed_at: 2026-08-13T01:03:12Z
+claimed_by: nak-worker
+class: standard
+completed: 2026-08-13T01:03:12Z
+created: 2026-08-12T18:43:37Z
+id: 3
+priority: low
+started: 2026-08-12T20:26:39Z
+status: done
+tags:
+- bug
+title: Duplex error message hardcodes port_forward for all callers
+updated: 2026-08-13T01:03:12Z
+---
+
+_do_duplex_request fails with '...port_forward requires Net::Async::Kubernetes to be added to an IO::Async::Loop' even when called via exec/attach/cp_to_pod/cp_from_pod. Pass the caller name in. Lane: nak-worker.
