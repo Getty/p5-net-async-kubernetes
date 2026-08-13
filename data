@@ -1,0 +1,18 @@
+---
+claimed_at: 2026-08-13T01:03:28Z
+claimed_by: nak-worker
+class: standard
+completed: 2026-08-13T01:03:28Z
+created: 2026-08-12T23:54:08Z
+id: 11
+priority: medium
+started: 2026-08-13T00:34:30Z
+status: done
+tags:
+- leak
+- controller
+title: Controller keeps one workqueue entry per key forever
+updated: 2026-08-13T01:03:28Z
+---
+
+Sibling of 10, found during the 4/5 work. Nothing ever removes an entry after a clean reconcile, so the keyspace grows for the whole process lifetime on high-churn resources. Open: prune on clean reconcile or on DELETED, and whether retry state survives. Test: drive many keys through reconcile, assert the count settles.
