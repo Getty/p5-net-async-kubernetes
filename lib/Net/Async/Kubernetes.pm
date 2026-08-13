@@ -254,6 +254,19 @@ sub expand_class {
 Expands a short resource name (e.g., C<'Pod'>, C<'Deployment'>) to its full
 IO::K8s class name. Delegates to L<Kubernetes::REST/expand_class>.
 
+The name may also be qualified as C<'group/version/Kind'>, which resolves to
+that exact API version instead of the historical default the bare Kind name
+carries -- the two forms can and do point at different classes:
+
+    $kube->expand_class('HorizontalPodAutoscaler');
+    # 'IO::K8s::Api::Autoscaling::V2::HorizontalPodAutoscaler' (bare-name default)
+
+    $kube->expand_class('autoscaling/v1/HorizontalPodAutoscaler');
+    # 'IO::K8s::Api::Autoscaling::V1::HorizontalPodAutoscaler' (pinned to v1)
+
+This qualified form is accepted anywhere a resource name is, including
+C<list>, C<get>, and C<watcher>.
+
 Croaks when the name cannot be resolved to an IO::K8s class. This is the
 synchronous counterpart of the C<Future>-returning methods below, which report
 the same condition as a failed L<Future>.
@@ -299,7 +312,9 @@ Arguments:
 
 =over 4
 
-=item C<$short_class> - Resource type (e.g., C<'Pod'>, C<'Deployment'>)
+=item C<$short_class> - Resource type (e.g., C<'Pod'>, C<'Deployment'>), or a
+qualified C<'group/version/Kind'> name to pin a specific API version -- see
+L</expand_class>
 
 =item C<%args> - Optional parameters (C<namespace>, etc.)
 
@@ -349,7 +364,8 @@ Arguments:
 
 =over 4
 
-=item C<$short_class> - Resource type (e.g., C<'Pod'>)
+=item C<$short_class> - Resource type (e.g., C<'Pod'>), or a qualified
+C<'group/version/Kind'> name -- see L</expand_class>
 
 =item C<$name> - Resource name (required)
 

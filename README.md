@@ -20,6 +20,7 @@ All API calls return [Future](https://metacpan.org/pod/Future) objects for non-b
 - **Auto-reconnect** on stream completion and connection errors
 - **Three patch types**: strategic-merge (default), merge, json
 - **Custom Resource Definition (CRD) support** via `resource_map`
+- **Qualified resource names**: `group/version/Kind` targets an exact API version
 - **Kubeconfig support** (`~/.kube/config`) with context selection
 - **In-cluster authentication**: auto-detects service account token when running inside a Kubernetes pod
 - **SSL/TLS** with client certificates

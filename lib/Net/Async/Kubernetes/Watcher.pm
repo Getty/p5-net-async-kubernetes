@@ -50,7 +50,8 @@ sub resource       { $_[0]->{resource} }
 =attr resource
 
 Required. The Kubernetes resource kind to watch (e.g., C<'Pod'>,
-C<'Deployment'>).
+C<'Deployment'>), or a qualified C<'group/version/Kind'> name to watch a
+specific API version -- see L<Net::Async::Kubernetes/expand_class>.
 
 =cut
 
