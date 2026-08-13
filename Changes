@@ -52,6 +52,12 @@ Revision history for Net-Async-Kubernetes
    key whose entry is gone, instead of skipping that one key. The state is not
    reachable today -- an entry is only dropped while its key is not queued --
    but it made loosening that condition a silent stall for every key behind it.
+ - Fix `stop()` leaving a watcher attached to the client on every stop/start
+   cycle. `$kube->watcher(...)` registers the watcher as a child of the client,
+   and `stop()` stopped it and dropped it from the watch spec without the
+   matching removal, while `start()` built a fresh one -- so a repeatedly
+   restarted controller piled up stopped watcher notifiers on the client, all
+   of them still reachable. A stopped watch is now detached as well.
  - Require `Kubernetes::REST` 1.106 (was 1.102) and `IO::K8s` 1.105 (was
    1.008). Kubernetes::REST 1.106 encodes request bodies as UTF-8 bytes;
    every `create`, `update` and `patch` here builds its body through

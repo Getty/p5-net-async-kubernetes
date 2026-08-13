@@ -93,6 +93,10 @@ sub stop {
     for my $spec (@{ $self->{watch_specs} || [] }) {
         next unless my $watcher = delete $spec->{watcher};
         $watcher->stop;
+        # $kube->watcher() add_child()ed it and a restart builds a fresh one,
+        # so without the matching removal every stop/start cycle leaves another
+        # stopped watcher attached to the client.
+        $watcher->remove_from_parent;
     }
 
     # A restart re-lists through fresh watches, so everything still alive

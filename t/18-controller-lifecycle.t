@@ -240,4 +240,34 @@ subtest 'a queued key without an entry does not abandon the drain' => sub {
     $loop->remove($kube);
 };
 
+subtest 'stop() leaves no watcher attached to the client' => sub {
+    my $kube = make_kube();
+    $loop->add($kube);
+
+    MockTransport::mock_watch_events('/api/v1/namespaces/default/pods',
+        [ pod_added('pod-children', 600) ]);
+
+    my $controller = $kube->controller(on_reconcile => sub { return });
+    $controller->watch_resource('Pod', namespace => 'default');
+
+    # The watcher is a child of the client, not of the controller:
+    # $kube->watcher() add_child()s it. Count what is attached there.
+    my $watchers = sub {
+        scalar grep { $_->isa('Net::Async::Kubernetes::Watcher') } $kube->children;
+    };
+
+    is($watchers->(), 1, 'the started watch is attached to the client');
+
+    for my $cycle (1 .. 3) {
+        $controller->stop;
+        is($watchers->(), 0, "cycle $cycle: stop detaches the watcher again");
+        $controller->start;
+        is($watchers->(), 1,
+            "cycle $cycle: the restart leaves exactly one watcher attached");
+    }
+
+    $controller->stop;
+    $loop->remove($kube);
+};
+
 done_testing;
