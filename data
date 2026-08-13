@@ -1,0 +1,18 @@
+---
+claimed_at: 2026-08-13T02:07:18Z
+claimed_by: nak-worker
+class: standard
+completed: 2026-08-13T02:07:18Z
+created: 2026-08-13T01:50:16Z
+id: 16
+priority: high
+started: 2026-08-13T01:52:01Z
+status: done
+tags:
+- bug
+- controller
+title: Dirty requeue refills the queue after stop()
+updated: 2026-08-13T02:07:18Z
+---
+
+Sibling of 14, found while fixing it and deliberately left out of scope. In the on_ready handler the dirty branch pushes the key back and sets queued = 1 without checking {stopped}. If a reconcile is in flight when stop() runs and an event arrived during that reconcile, the requeue lands after stop() cleared everything -- reproducing the exact 14 stall through a second path. It is the only one of the six queue-touching places with no stopped guard (compare lines 157, 191, 201, 264, 270, all guarded). Fix is to skip the dirty requeue while stopped. The test needs a second event delivered mid-reconcile, which MockTransport does not do out of the box, so the harness may need a small extension first.
