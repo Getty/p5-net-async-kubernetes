@@ -1,0 +1,20 @@
+---
+claimed_at: 2026-08-13T03:39:18Z
+claimed_by: nak-test-writer
+class: standard
+completed: 2026-08-13T03:38:39Z
+created: 2026-08-12T19:43:54Z
+id: 8
+priority: high
+started: 2026-08-13T03:23:09Z
+status: done
+tags:
+- feature
+- docs
+- io-k8s
+title: Qualified GVK names (apiVersion/Kind) work end-to-end but are undocumented
+  and untested
+updated: 2026-08-13T03:39:18Z
+---
+
+io-k8s-p5 HEAD (1.106, unreleased) made dispatch exact: %DEFAULT_RESOURCE_MAP now carries 113 qualified "apiVersion/Kind" keys. Verified through the NAK seam: expand_class("resource.k8s.io/v1beta1/DeviceClass") => IO::K8s::Api::Resource::V1beta1::DeviceClass, build_path => /apis/resource.k8s.io/v1beta1/deviceclasses. Same for events.k8s.io/v1/Event and autoscaling/v1/HorizontalPodAutoscaler (both distinct from the bare-name defaults Core V1 Event / Autoscaling V2 HPA). So $kube->list/get/watch("group/version/Kind") already reaches the right endpoint today — NAK just documents "short class name" everywhere and has no test pinning it. Add: mock coverage for a qualified name on list/get/watch, POD on expand_class/list/get + Watcher resource, README mention. Blocked on #7 for the pin. Lane: nak-test-writer + nak-pod-writer.
