@@ -1,0 +1,18 @@
+---
+claimed_at: 2026-08-13T01:03:28Z
+claimed_by: nak-worker
+class: standard
+completed: 2026-08-13T01:03:28Z
+created: 2026-08-12T20:53:02Z
+id: 10
+priority: medium
+started: 2026-08-13T00:34:42Z
+status: done
+tags:
+- leak
+- controller
+title: 'Controller self-cycle: entries -> ctx -> controller'
+updated: 2026-08-13T01:03:28Z
+---
+
+Found while fixing #5, deliberately left alone as a distinct defect. _enqueue_event stores controller => $self into $entry->{ctx}, and the entry lives in $self->{entries}: controller -> entries -> ctx -> controller. Isolated after the #5 fix — the kube client is now freed, the controller is not, and clearing {entries} frees it. No client is involved in this cycle, so weakening ctx->{controller} is the candidate fix, but it changes what on_reconcile receives and needs its own weak-ref regression test. Lane: nak-worker.
