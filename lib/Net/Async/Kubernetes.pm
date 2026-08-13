@@ -223,7 +223,25 @@ sub _materialize_ssl_pem {
     return $fh->filename;
 }
 
-sub expand_class { shift->_rest->expand_class(@_) }
+# IO::K8s::expand_class fails closed: an unknown, malformed or mismatched
+# apiVersion yields undef instead of a bare-name guess. Passing that undef on to
+# build_path dies with "argument is not a module name", naming neither the
+# resource nor the reason, so every call site guards the result with this.
+sub _unknown_resource_error {
+    my ($self, $short_class) = @_;
+    return sprintf(
+        "unknown resource '%s': no IO::K8s class for this apiVersion/kind"
+            . " (add it to resource_map if it is a CRD)",
+        defined $short_class ? $short_class : '(undef)',
+    );
+}
+
+sub expand_class {
+    my ($self, @args) = @_;
+    my $class = $self->_rest->expand_class(@args);
+    croak $self->_unknown_resource_error($args[0]) unless defined $class;
+    return $class;
+}
 
 =method expand_class
 
@@ -232,6 +250,10 @@ sub expand_class { shift->_rest->expand_class(@_) }
 
 Expands a short resource name (e.g., C<'Pod'>, C<'Deployment'>) to its full
 IO::K8s class name. Delegates to L<Kubernetes::REST/expand_class>.
+
+Croaks when the name cannot be resolved to an IO::K8s class. This is the
+synchronous counterpart of the C<Future>-returning methods below, which report
+the same condition as a failed L<Future>.
 
 =cut
 
@@ -248,7 +270,8 @@ sub list {
     my ($self, $short_class, %args) = @_;
 
     my $rest = $self->_rest;
-    my $class = $rest->expand_class($short_class);
+    my $class = $rest->expand_class($short_class)
+        // return Future->fail($self->_unknown_resource_error($short_class));
     my $path = $rest->build_path($class, %args);
     my $req = $rest->prepare_request('GET', $path);
 
@@ -297,7 +320,8 @@ sub get {
         return Future->fail("Invalid arguments to get()");
     }
 
-    my $class = $rest->expand_class($short_class);
+    my $class = $rest->expand_class($short_class)
+        // return Future->fail($self->_unknown_resource_error($short_class));
     return Future->fail("name required for get") unless $args{name};
 
     my $path = $rest->build_path($class, %args);
@@ -433,7 +457,8 @@ sub patch {
             return Future->fail("Invalid arguments to patch()");
         }
 
-        $class = $rest->expand_class($class_or_object);
+        $class = $rest->expand_class($class_or_object)
+            // return Future->fail($self->_unknown_resource_error($class_or_object));
         $name = $args{name} or return Future->fail("name required for patch");
         $namespace = $args{namespace};
         $patch = $args{patch} // return Future->fail("patch requires 'patch' parameter");
@@ -519,7 +544,8 @@ sub delete {
             return Future->fail("Invalid arguments to delete()");
         }
 
-        $class = $rest->expand_class($class_or_object);
+        $class = $rest->expand_class($class_or_object)
+            // return Future->fail($self->_unknown_resource_error($class_or_object));
         $name = $args{name} or return Future->fail("name required for delete");
         $namespace = $args{namespace};
     }
@@ -592,7 +618,8 @@ sub log {
     my $previous      = delete $args{previous};
     my $limit_bytes   = delete $args{limitBytes};
 
-    my $class = $rest->expand_class($short_class);
+    my $class = $rest->expand_class($short_class)
+        // return Future->fail($self->_unknown_resource_error($short_class));
     my $path = $rest->build_path($class, %args) . '/log';
 
     my %params;
@@ -699,7 +726,8 @@ sub port_forward {
     my $on_close = delete $args{on_close};
     my $on_error = delete $args{on_error};
 
-    my $class = $rest->expand_class($short_class);
+    my $class = $rest->expand_class($short_class)
+        // return Future->fail($self->_unknown_resource_error($short_class));
     my $path = $rest->build_path($class, %args) . '/portforward';
 
     # Keep compatibility with Kubernetes::REST >= 1.100 by expanding repeated
@@ -793,7 +821,8 @@ sub exec {
     my $on_close = delete $args{on_close};
     my $on_error = delete $args{on_error};
 
-    my $class = $rest->expand_class($short_class);
+    my $class = $rest->expand_class($short_class)
+        // return Future->fail($self->_unknown_resource_error($short_class));
     my $path = $rest->build_path($class, %args) . '/exec';
 
     my %params = (
@@ -883,7 +912,8 @@ sub attach {
     my $on_close = delete $args{on_close};
     my $on_error = delete $args{on_error};
 
-    my $class = $rest->expand_class($short_class);
+    my $class = $rest->expand_class($short_class)
+        // return Future->fail($self->_unknown_resource_error($short_class));
     my $path = $rest->build_path($class, %args) . '/attach';
 
     my %params = (

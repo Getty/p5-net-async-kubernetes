@@ -226,7 +226,8 @@ sub _start_watch {
     $self->{_buffer} = '';
 
     my $rest = $self->kube->_rest;
-    my $class = $rest->expand_class($self->resource);
+    my $class = $rest->expand_class($self->resource)
+        // croak $self->kube->_unknown_resource_error($self->resource);
     my $path = $rest->build_path($class,
         ($self->namespace ? (namespace => $self->namespace) : ()),
     );

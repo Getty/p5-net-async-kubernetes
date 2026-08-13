@@ -15,6 +15,16 @@ Revision history for Net-Async-Kubernetes
  - Fix the duplex transport reporting `port_forward` in its "not added to an
    IO::Async::Loop" failure regardless of which method was called; `exec()`
    and `attach()` now name themselves.
+ - Fix a resource name that `IO::K8s` cannot resolve killing the caller
+   instead of failing its `Future`. `expand_class` fails closed -- an
+   unknown, malformed or mismatched apiVersion resolves to undef rather than
+   a bare-name guess -- and that undef went straight into `build_path`, which
+   died with "argument is not a module name", naming neither the resource nor
+   the reason. `list()`, `get()`, `patch()`, `delete()`, `log()`,
+   `port_forward()`, `exec()`, `attach()` and the controller's
+   `patch_status()` now return a failed `Future` naming the resource, keeping
+   the contract their callers await on. The two genuinely synchronous paths,
+   `$kube->expand_class` and starting a watcher, croak with the same message.
 
 0.007     2026-04-15 18:21:50Z
  - Add `Net::Async::Kubernetes::Controller` as a minimal controller runtime.

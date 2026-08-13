@@ -314,7 +314,9 @@ sub patch_status {
             return Future->fail("Invalid arguments to patch_status()");
         }
 
-        $class = $rest->expand_class($class_or_object);
+        $class = $rest->expand_class($class_or_object)
+            // return Future->fail(
+                $self->kube->_unknown_resource_error($class_or_object));
         $name = $args{name} or return Future->fail("name required for patch_status");
         $namespace = $args{namespace};
         $status = $args{status} // return Future->fail("status required for patch_status");
