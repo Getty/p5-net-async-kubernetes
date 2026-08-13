@@ -1,0 +1,18 @@
+---
+claimed_at: 2026-08-13T02:46:47Z
+claimed_by: nak-pod-writer
+class: standard
+completed: 2026-08-13T02:46:47Z
+created: 2026-08-13T02:36:17Z
+id: 22
+priority: low
+started: 2026-08-13T02:43:04Z
+status: done
+tags:
+- docs
+- pod
+title: Redundant manual =head1 NAME in Watcher.pm and Kubernetes.pm
+updated: 2026-08-13T02:46:47Z
+---
+
+Reported by the pod-writer while doing 20. PodWeaver generates the NAME section, and perl-release-author-getty says not to write it by hand. Controller.pm and the new PortForwardSession.pm leave it out correctly; Watcher.pm and Kubernetes.pm still carry it manually. Remove the two leftovers so the distribution is consistent. Lane: nak-pod-writer.
