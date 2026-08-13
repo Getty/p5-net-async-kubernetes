@@ -1,0 +1,18 @@
+---
+claimed_at: 2026-08-13T02:33:29Z
+claimed_by: main
+class: standard
+completed: 2026-08-13T02:33:29Z
+created: 2026-08-13T02:18:34Z
+id: 19
+priority: medium
+started: 2026-08-13T02:21:44Z
+status: done
+tags:
+- docs
+- drift
+title: nak-core skill and CLAUDE.md still call PortForwardSession an inline package
+updated: 2026-08-13T02:33:29Z
+---
+
+Fallout from 13. .claude/skills/nak-core/SKILL.md around line 22 states the class is an inline package at the bottom of Kubernetes.pm and not its own file, which stopped being true with commit a4b6323. The module list in CLAUDE.md names Watcher.pm and Controller.pm but not the new PortForwardSession.pm. Both feed agent briefings, so the stale line actively misleads whoever works on the duplex transport next. Careful with SKILL.md files: they are hardlink-shared across projects, so edit with a shell redirect rather than the Edit tool, see the manage-skills rules.
