@@ -1,0 +1,17 @@
+---
+claimed_at: 2026-08-13T01:03:38Z
+claimed_by: nak-pod-writer
+class: standard
+completed: 2026-08-13T01:03:38Z
+created: 2026-08-12T18:40:04Z
+id: 1
+priority: medium
+started: 2026-08-12T22:11:06Z
+status: done
+tags:
+- docs
+title: 'README: document Controller runtime (added in 0.007)'
+updated: 2026-08-13T01:03:38Z
+---
+
+README.md lists port-forward/exec/attach/cp features but never mentions Net::Async::Kubernetes::Controller or the $kube->controller(...) factory shipped in 0.007. Add a feature bullet and a short synopsis example (watch registration, reconcile callback). Lane: nak-pod-writer / docs.
