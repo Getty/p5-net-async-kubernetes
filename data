@@ -1,0 +1,18 @@
+---
+claimed_at: 2026-08-13T02:18:16Z
+claimed_by: nak-worker
+class: standard
+completed: 2026-08-13T02:18:16Z
+created: 2026-08-13T00:32:17Z
+id: 13
+priority: low
+started: 2026-08-13T02:08:41Z
+status: done
+tags:
+- release
+- packaging
+title: dzil build warns about inline PortForwardSession package
+updated: 2026-08-13T02:18:16Z
+---
+
+Pre-existing, surfaced during the 7 work. dzil build warns: MetaProvides::Package ... Net::Async::Kubernetes::PortForwardSession. The package is declared inline in lib/Net/Async/Kubernetes.pm (around line 1491) rather than in its own file, so the metadata provides map cannot attribute it cleanly. Decide: move it to lib/Net/Async/Kubernetes/PortForwardSession.pm, or silence the warning deliberately. Its POD and the README reference it as a real class, which argues for its own file. Not urgent, but it is noise on every build.
