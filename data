@@ -1,0 +1,18 @@
+---
+claimed_at: 2026-08-13T01:03:28Z
+claimed_by: nak-worker
+class: standard
+completed: 2026-08-13T01:03:28Z
+created: 2026-08-12T19:43:21Z
+id: 7
+priority: high
+started: 2026-08-13T00:00:16Z
+status: done
+tags:
+- deps
+- release
+title: 'cpanfile: IO::K8s and Kubernetes::REST pins badly outdated'
+updated: 2026-08-13T01:03:28Z
+---
+
+cpanfile pins IO::K8s 1.008 (CPAN: 1.105) and Kubernetes::REST 1.102 (CPAN: 1.106). Both are ~100 releases behind; the pins no longer express what NAK actually needs (exact GVK dispatch, api_group fixes, DRA classes). Bump to the RELEASED versions only — Getty-dist version trap: the sibling repos carry 1.106 / 1.107 which are unreleased and uninstallable. Verified: mock suite green (18 files, 139 tests) against both installed 1.105/1.106 and the repo HEADs. Lane: nak-release-checker (verify) + nak-worker (edit).
