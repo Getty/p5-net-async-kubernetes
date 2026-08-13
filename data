@@ -1,0 +1,19 @@
+---
+claimed_at: 2026-08-13T01:03:28Z
+claimed_by: nak-worker
+class: standard
+completed: 2026-08-13T01:03:28Z
+created: 2026-08-12T18:43:48Z
+id: 5
+priority: medium
+started: 2026-08-12T20:27:28Z
+status: done
+tags:
+- leak
+- controller
+title: 'Reference cycle: controller(...) add_childs while Controller holds strong
+  kube ref'
+updated: 2026-08-13T01:03:28Z
+---
+
+Watcher weakens {kube}, Controller does not — plus $kube->controller(...) does add_child($controller), so kube -> child controller -> kube cycles and leaks unless removed explicitly. Decide weaken vs documented ownership. Lane: nak-worker.
