@@ -20,6 +20,8 @@ use Kubernetes::REST::HTTPResponse;
 use Kubernetes::REST::WatchEvent;
 use Kubernetes::REST::LogEvent;
 use Net::Async::Kubernetes::PortForwardSession;
+use Net::Async::Kubernetes::Watcher;
+use Net::Async::Kubernetes::Controller;
 
 sub configure {
     my ($self, %params) = @_;
@@ -1203,8 +1205,6 @@ sub _send_stdin_chunks {
 sub watcher {
     my ($self, $resource, %args) = @_;
 
-    require Net::Async::Kubernetes::Watcher;
-
     my $watcher = Net::Async::Kubernetes::Watcher->new(
         kube     => $self,
         resource => $resource,
@@ -1217,8 +1217,6 @@ sub watcher {
 
 sub controller {
     my ($self, %args) = @_;
-
-    require Net::Async::Kubernetes::Controller;
 
     my $controller = Net::Async::Kubernetes::Controller->new(
         kube => $self,
