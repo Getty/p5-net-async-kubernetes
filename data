@@ -1,0 +1,18 @@
+---
+claimed_at: 2026-08-13T01:03:38Z
+claimed_by: nak-pod-writer
+class: standard
+completed: 2026-08-13T01:03:38Z
+created: 2026-08-12T18:43:31Z
+id: 2
+priority: medium
+started: 2026-08-12T22:11:06Z
+status: done
+tags:
+- docs
+- pod
+title: 'POD: list() documents ArrayRef but returns IO::K8s::List'
+updated: 2026-08-13T01:03:38Z
+---
+
+Kubernetes.pm ~L267 documents list() as resolving to an ArrayRef of objects; it actually resolves to an IO::K8s::List (use ->items). Fix the =method POD. Lane: nak-pod-writer.
