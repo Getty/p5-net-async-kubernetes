@@ -79,6 +79,33 @@ Revision history for Net-Async-Kubernetes
    `prepare_request`, so before that fix a manifest carrying a non-ASCII
    character died with "HTTP::Message content must be bytes" without ever
    reaching the cluster. That release requires IO::K8s 1.105 in turn.
+ - Require `IO::K8s` 1.106 (was 1.105) for two fixes that land on seams this
+   client uses on every request. `Kubernetes::REST` derives every URL path
+   from `$class->api_version`, and for the Storagemigration and
+   Apiserverinternal groups 1.105 returned a lowercased class-name fragment --
+   so `list()`, `get()` and every writing method addressed
+   `/apis/storagemigration/v1alpha1` and `/apis/apiserverinternal/v1alpha1`,
+   neither of which the API server serves. 1.106 returns the upstream group
+   names. The short names were no better off: they resolved to a bogus
+   `IO::K8s::StorageVersionMigration`, which is not undef, so the
+   fail-closed guard above let it through to `build_path` and its raw
+   "Can't locate ... in @INC" -- exactly the error that guard exists to
+   replace.
+ - The second fix is `_expand_class`, which could not match a CamelCase
+   namespace prefix and sent KubeAggregator's `APIService` looking for its
+   spec and status under `IO::K8s::Api::KubeAggregator::V1`. Because each of
+   this client's inflation paths handles a failure differently, one bug had
+   three faces: `get()` died on the response, `list()` dropped every item
+   inside its per-item `eval` and returned an empty `IO::K8s::List`, and a
+   watch handed `on_added` the raw hashref instead of a typed object.
+ - Gain a capability with the same release: its exact GVK dispatch (113
+   qualified `$apiVersion/$Kind` map keys, previously none) means a resource
+   name of the form `group/version/Kind` now resolves anywhere this client
+   takes one. `list('autoscaling/v1/HorizontalPodAutoscaler')` addresses
+   `/apis/autoscaling/v1/...`, while the bare `HorizontalPodAutoscaler` keeps
+   reaching the shipped default of v2 -- so a caller can finally target a
+   version other than the default. Under 1.105 the qualified form resolved to
+   undef and failed.
 
 0.007     2026-04-15 18:21:50Z
  - Add `Net::Async::Kubernetes::Controller` as a minimal controller runtime.
