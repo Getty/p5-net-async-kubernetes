@@ -1,0 +1,125 @@
+---
+claimed_at: 2026-08-16T21:16:51Z
+claimed_by: nak-worker
+class: standard
+completed: 2026-08-16T21:16:51Z
+created: 2026-08-16T21:02:21Z
+id: 26
+priority: high
+started: 2026-08-16T21:08:56Z
+status: done
+tags:
+- io-k8s
+- resource-map
+- upstream
+- cpan-testers
+title: 'IO::K8s: expand_class laesst geladenes Paket gegen resource_map gewinnen (Root
+  Cause Issue #2)'
+updated: 2026-08-16T21:16:51Z
+---
+
+Root Cause von karr #25 / GitHub Issue #2. Der Bug liegt NICHT in
+Net::Async::Kubernetes, sondern in IO::K8s (Repo /home/getty/dev/io-k8s-p5).
+Reproduziert unter IO::K8s 1.107.
+
+## Befund
+
+IO::K8s::expand_class prueft _class_exists($class) VOR dem resource_map-Lookup:
+
+    return substr($class, 1) if $class =~ /^\+/;
+    ...
+    return $class if $class =~ /^IO::K8s::/;
+    return $class if _class_exists($class);   # <-- zu frueh
+    # domain-qualified ...
+    # erst hier: $map->{$class}
+
+_class_exists faellt auf require_module($class) zurueck. Existiert also
+irgendwo in @INC ein top-level Role.pm, liefert expand_class("Role") den
+String "Role" statt IO::K8s::Api::Rbac::V1::Role. struct_to_object ruft dann
+"Role"->_k8s_attr_info -> "Cant locate object method".
+
+Belegt auf dieser Maschine mit 1.107:
+    ohne Role.pm in @INC:  expand_class(Role) = IO::K8s::Api::Rbac::V1::Role
+    mit  Role.pm in @INC:  expand_class(Role) = Role
+
+_class_exists ist in 1.008 und 1.107 byte-identisch — der Bug ist seit
+mindestens 1.008 unveraendert vorhanden und vom 1.106-Pin NICHT abgedeckt.
+
+## Realer Ausloeser
+
+CPAN-Dist Class-Mite liefert top-level lib/Role.pm aus. Smoker mit Class::Mite
+installiert kippen um, andere nicht — daher eserte "fails on SOME of my smokers".
+
+Weitere bare Kinds mit indizierten top-level CPAN-Modulen, gleiche Falle:
+Event (Dist Event), Job (Class-DBI-FormBuilder), Service (Salesforce),
+Binding (Binding), Scale (CNC-Cog), Workload (IBM-LoadLeveler).
+
+## Vorschlag
+
+Ein bare Name, der in der resource_map steht, IST ein Kind — der
+_class_exists-Shortcut darf erst greifen, wenn der Name NICHT in der Map ist.
+Sein Zweck sind per Vollnamen uebergebene CRD-Klassen, und die matchen den
+Map-Lookup ohnehin nicht. Also Reihenfolge drehen: erst $map->{$class}, dann
+_class_exists. Regressionstest in io-k8s-p5: temporaeres Role.pm in @INC
+schieben und pruefen, dass expand_class("Role") trotzdem
+IO::K8s::Api::Rbac::V1::Role liefert.
+
+Achtung Versionspin: aktuell released ist IO::K8s 1.107, im Repo steht 1.108
+(Getty-Dist, immer eine Version voraus — cpanm --info gegenpruefen).
+
+## Danach
+
+Erst wenn das in IO::K8s gefixt und released ist, kann der cpanfile-Pin hier
+auf die neue Version hoch und Issue #2 wirklich geschlossen werden. Release
+und Issue-Antwort nur mit ausdruecklicher Freigabe des Maintainers.
+## Orchestrator-Verifikation (2026-08-16)
+
+Diagnose unabhaengig nachgestellt und bestaetigt, gegen die installierte 1.107:
+
+    ohne stray Role.pm:  expand_class('Role') = IO::K8s::Api::Rbac::V1::Role
+    mit  stray Role.pm:  expand_class('Role') = Role
+    new_object(Role=>…): Can't locate object method "_k8s_attr_info" via
+                         package "Role" at ~/perl5/lib/perl5/IO/K8s.pm line 810
+
+Quelltext gegengelesen: der _class_exists-Zweig steht in 1.107 bei Zeile 457,
+kommentiert als 'Already a loaded class (e.g. CRD class passed by ref)', und der
+Map-Lookup 'Short name like Pod' kommt erst rund 20 Zeilen spaeter. Der
+Vorschlag, die Reihenfolge zu drehen, trifft die Stelle richtig.
+## Ergebnis: nichts zu tun — der Fix liegt bereits in io-k8s-p5 HEAD
+
+Dieses Ticket war gegen die RELEASED 1.107 geschrieben, nicht gegen den Repo-Stand.
+Im Repo /home/getty/dev/io-k8s-p5 ist der Bug seit dem 2026-08-15 behoben, unter
+den beiden eigenen Tickets des io-k8s-Boards (#34 und #35, beide done):
+
+    bd544ca8  Stop bare Kind short names resolving to a same-named CPAN module
+              (io-k8s karr #34, GH pplu/io-k8s-p5 #7 + #8) -- exakt der hier
+              vorgeschlagene Reorder: _class_exists unter den resource_map-Lookup
+    cb0ab218  Read a bare one-word class name as a Kind, not a package name
+              (io-k8s karr #35) -- geht darueber hinaus
+
+Der Reorder allein haette ein Restfenster gelassen: ein Kind, das nur im
+openapi_spec steht und nicht in der Map, erreicht den Probe auch nach dem Reorder
+noch vor AutoGen. Der Repo-Fix schliesst das, indem der Probe auf mehrsegmentige
+Namen eingeschraenkt wird -- ein einwortiger bare Name IST ein Kind.
+
+Orchestrator-Verifikation im Code (HEAD):
+    Zeile 479  if (my $mapped = $map->{$class})            <- resource_map zuerst
+    Zeile 498  Kommentar 'Must stay *below* the resource_map lookup (karr #34, GH #7/#8)'
+    Zeile 522  return $class if $class =~ /::/ && _class_exists($class);
+
+Praktisch gegengeprueft, gleiches stray Role.pm auf @INC:
+    HEAD-lib (1.108):     expand_class('Role') = IO::K8s::Api::Rbac::V1::Role
+                          new_object(Role=>…)  = IO::K8s::Api::Rbac::V1::Role
+    installierte 1.107:   expand_class('Role') = Role
+                          new_object(Role=>…)  = DIED _k8s_attr_info
+
+Repo unveraendert (git status leer), kein Code geschrieben, nichts committet.
+
+Praezisierung zur urspruenglichen Analyse: 'in 1.008 und 1.107 byte-identisch'
+stimmt fuer sub _class_exists, ist aber irrefuehrend — die Funktion war nie der
+Bug, nur ihre Aufrufreihenfolge. Beim Versionsabgleich auf die Position von
+'return $class if _class_exists($class);' schauen, nicht auf die sub.
+
+Bleibt: IO::K8s 1.108 ist NICHT released (cpanm --info liefert weiter 1.107).
+Das ist der einzige verbleibende Blocker fuer #25 / GitHub Issue #2.
+Achtung beim Release: io-k8s-p5 ist co-maintained, authority = cpan:JLMARTIN.
