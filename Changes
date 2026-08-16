@@ -106,6 +106,18 @@ Revision history for Net-Async-Kubernetes
    reaching the shipped default of v2 -- so a caller can finally target a
    version other than the default. Under 1.105 the qualified form resolved to
    undef and failed.
+ - Stop `t/03-configure.t` reading the kubeconfig of the machine it runs on.
+   The subtest guarded only on the file existing and then loaded
+   `$ENV{KUBECONFIG} // "$ENV{HOME}/.kube/config"`, so the result depended on
+   the smoker: every report for 0.005 from one CPAN Testers machine was a FAIL
+   and nobody else saw it, because that machine carried a kubeconfig with
+   `contexts: null` and an empty `current-context`. Resolution croaked, the
+   subtest died before running a single test, and the file exited 255. A valid
+   foreign kubeconfig is no better a basis -- an exec auth plugin or an
+   unreachable cluster fails just as readily. The subtest now runs against a
+   fixture written to a temporary HOME, so it neither skips nor depends on the
+   machine, and a companion subtest holds the degenerate config to a catchable
+   croak instead of a dead run. Reported by Andreas Koenig, GitHub issue #1.
 
 0.007     2026-04-15 18:21:50Z
  - Add `Net::Async::Kubernetes::Controller` as a minimal controller runtime.
