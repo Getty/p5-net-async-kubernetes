@@ -1,0 +1,105 @@
+---
+claimed_at: 2026-08-16T21:13:03Z
+claimed_by: nak-test-writer
+class: standard
+completed: 2026-08-16T21:12:59Z
+created: 2026-08-16T15:59:37Z
+id: 23
+priority: high
+started: 2026-08-16T20:53:44Z
+status: done
+tags:
+- kubeconfig
+- tests
+- cpan-testers
+title: t/03-configure.t liest den echten ~/.kube/config des Smokers -> CPAN-Fails
+updated: 2026-08-16T21:13:03Z
+---
+
+GitHub Issue #1 (andk / Andreas Koenig), gemeldet 2026-03-05.
+CPAN-Testers-Report: https://www.cpantesters.org/cpan/report/c8c7c87a-1858-11f1-a24d-866530f222fb
+Alle Reports von andks Smokern fuer Net-Async-Kubernetes-0.005 waren FAIL, sonst niemand.
+
+## Symptom
+
+t/03-configure.t stirbt mit exit 255:
+
+    Use of uninitialized value $name in concatenation (.) or string at
+      Kubernetes/REST/Kubeconfig.pm line 183.
+    Context not found:  at lib/Net/Async/Kubernetes.pm line 68.
+    # Looks like your test exited with 255 just after 6.
+
+## Repro (verifiziert am 2026-08-16, lokal)
+
+Fake-HOME mit dem degenerierten kubeconfig aus dem Issue anlegen:
+
+    apiVersion: v1
+    clusters: null
+    contexts: null
+    current-context: ""
+    kind: Config
+    preferences: {}
+    users: null
+
+dann:
+
+    env -u KUBECONFIG HOME=$FAKEHOME perl -Ilib t/03-configure.t
+
+-> Subtest "new with kubeconfig" bricht ab, "No tests run", exit 255.
+
+## Ursache
+
+t/03-configure.t:97 guardet nur auf Existenz der Datei:
+
+    skip "No kubeconfig available", 3
+        unless -f ($ENV{KUBECONFIG} // "$ENV{HOME}/.kube/config");
+
+und laedt in Zeile 101 genau diese Datei. Der Test haengt damit an der Umgebung
+des Smokers. Das ist unabhaengig vom leeren-Config-Fall falsch: auch ein voellig
+GUELTIGER fremder kubeconfig ist keine Testgrundlage (exec-Auth-Plugin,
+unerreichbares Cluster, ungewoehnliches Cert-Setup krachen genauso). Ein
+CPAN-Test darf $HOME gar nicht erst anfassen.
+
+Der croak kommt aus lib/Net/Async/Kubernetes.pm:66-70 — expliziter kubeconfig
+muss resolven oder croaken (bewusst, kein eval). Das Verhalten ist richtig, der
+Test ist falsch.
+
+## Fix
+
+Fixture-kubeconfig ins tempdir schreiben (File::Temp), HOME/KUBECONFIG lokal
+darauf zeigen lassen, Subtest gegen die Fixture laufen lassen. Dann laeuft er
+ueberall deterministisch statt zufaellig zu skippen oder zu sterben.
+
+Regressionsfall dazu: degenerierter kubeconfig (clusters/contexts null,
+current-context "") -> erwarte sauberen croak, keinen Test-Abbruch.
+
+Agent: nak-test-writer. Siehe auch das Ticket zur Fehlermeldung in
+Kubernetes::REST::Kubeconfig — unabhaengig, aber gleicher Ausloeser.
+Follow-up nach dem Fix: GitHub Issue #1 beantworten/schliessen — andk hat sich bereits selbst entlastet ("Consider my smoker cleared"), das Issue bleibt aber offen als Erinnerung an genau diesen Testfix. GitHub-Write NUR mit ausdruecklicher Freigabe des Maintainers (Hausregel).
+## Orchestrator-Verifikation (2026-08-16)
+
+Fix umgesetzt in t/03-configure.t (einzige geaenderte Datei, nicht committet).
+Fixture-kubeconfig via File::Temp, HOME UND KUBECONFIG lokal darauf gezeigt, damit
+weder der explizite Pfad noch eine indirekte Aufloesung die Maschine trifft. Der
+alte SKIP-Block ist weg, der Subtest laeuft jetzt immer statt zufaellig zu skippen.
+Zusatz-Assertions: exakter Endpoint und exaktes Token statt qr{^https?://}.
+
+Regressionssubtest mit dem degenerierten Config aus Issue #1 via throws_ok, gematcht
+auf qr/context|kubeconfig/i — bewusst lose, damit die in #24 neu formulierte Meldung
+('kubeconfig defines no contexts: <pfad>') weiterhin durchgeht. throws_ok selbst
+traegt die eigentliche Behauptung: der croak ist fangbar und reisst den Lauf nicht ab.
+
+Selbst nachgefahren, nicht nur vom Agenten uebernommen:
+- alter Stand + degeneriertes FAKEHOME -> EXIT=255, 'exited with 255 just after 6'
+- neuer Stand -> EXIT=0 (10 Tests) in allen drei Umgebungen: degeneriertes FAKEHOME,
+  HOME+KUBECONFIG unset, echte Umgebung
+- prove -l t/ -> Files=21 Tests=166 PASS, MOCK-Modus
+  (TEST_KUBERNETES_REST_KUBECONFIG war nie gesetzt, Live-Modus lief nicht)
+
+Der PERL5LIB-Zusatz aus #27 ist dafuer noetig; ohne ihn kompiliert die Suite nicht.
+
+Offen: nur der Follow-up auf GitHub Issue #1 — braucht ausdrueckliche Maintainer-
+Freigabe (Hausregel), wurde NICHT angefasst.
+Committet als aef3a36 auf main (p5-net-async-kubernetes), zusammen mit einem Changes-Eintrag unter {{$NEXT}}. Nicht gepusht, nicht released.
+
+Offen bleibt nur der Follow-up auf GitHub Issue #1 — braucht ausdrueckliche Maintainer-Freigabe.
