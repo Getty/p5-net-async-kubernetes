@@ -1,0 +1,102 @@
+---
+claimed_at: 2026-08-16T21:15:32Z
+claimed_by: main
+class: standard
+completed: 2026-08-16T21:15:28Z
+created: 2026-08-16T21:02:40Z
+id: 27
+priority: medium
+started: 2026-08-16T21:15:28Z
+status: done
+tags:
+- environment
+- testing
+- blocker
+title: 'Testumgebung: drei cpanfile-Deps fehlen im ~/perl5 local::lib'
+updated: 2026-08-16T21:15:32Z
+---
+
+Auf der aktuellen Maschine (nach dem Maschinenwechsel) laesst sich die
+Testsuite ueberhaupt nicht ausfuehren. lib/Net/Async/Kubernetes.pm bricht beim
+Kompilieren ab:
+
+    Cant locate Protocol/WebSocket/Request.pm in @INC ...
+      at /home/getty/dev/p5-net-async-kubernetes/lib/Net/Async/Kubernetes.pm line 14.
+    Compilation failed in require at t/lib/TestKube.pm line 12.
+
+Betrifft HEAD unveraendert (git status sauber) — Umgebungsluecke, keine Regression.
+
+## Dep-Status in /home/getty/perl5/lib/perl5 (perl 5.40.1, /usr/bin/perl)
+
+    OK   IO::Async                    0.805
+    MISS Net::Async::HTTP
+    MISS Net::Async::WebSocket::Client
+    MISS Protocol::WebSocket
+    OK   Future                       0.52
+    OK   URI                          5.35
+    OK   IO::Socket::SSL              2.099
+    OK   Kubernetes::REST             1.107
+    OK   IO::K8s                      1.107
+    OK   Test::More                   1.302222
+    OK   Test::Exception               0.43
+
+Es gibt nur einen perl auf der Box (kein perlbrew, kein /opt/perl*), also kein
+alternativer Interpreter, auf dem die Deps liegen wuerden. Netzwerk ist da.
+
+## Folge
+
+Solange das offen ist, kann kein Agent "prove -l t/ ist gruen" behaupten und
+kein Regressionstest verifiziert werden. Blockiert die Verifikation von #25/#26.
+
+## Fix
+
+cpanm Net::Async::HTTP Net::Async::WebSocket::Client Protocol::WebSocket
+ins bestehende ~/perl5. Nur vom Maintainer auszufuehren — Agenten haben
+Schreibverbot auf ~/perl5, damit die installierte IO::K8s 1.107 unangetastet
+bleibt.
+## Korrektur durch den Orchestrator (2026-08-16)
+
+Titel und Prioritaet entschaerft. Die urspruengliche Aussage 'prove -l t/ laeuft
+gar nicht' und 'blockiert die Verifikation von #25/#26' stimmt so nicht.
+
+Der Dep-Befund selbst ist richtig: Net::Async::HTTP, Net::Async::WebSocket::Client
+und Protocol::WebSocket fehlen in /home/getty/perl5/lib/perl5, ein nacktes
+prove -l t/ bricht deshalb beim Kompilieren ab. Aber die drei liegen bereits in
+einem Scratch-Prefix (per cpanm -L installiert, ~/perl5 wurde dabei nicht
+angefasst), und damit ist die Suite gruen:
+
+    export PERL5LIB=<scratchpad>/perl5/lib/perl5:$HOME/perl5/lib/perl5
+    prove -l t/   ->  Files=21 Tests=166 PASS, MOCK-Modus
+
+Fallstrick, der mich selbst erwischt hat: PERL5LIB SETZEN statt VORANSTELLEN wirft
+~/perl5 aus @INC und laesst dann Test::Exception fehlen. Der Scratch-Prefix muss
+vor $HOME/perl5/lib/perl5 stehen, nicht an dessen Stelle.
+
+Damit sind #23 und #24 vollstaendig verifiziert worden; #25 haengt an #26 (dem
+IO::K8s-Bug), nicht an diesem Ticket.
+
+Bleibt offen, weil der Scratch-Prefix sessiongebunden ist und mit dem Aufraeumen
+von /tmp verschwindet. Dauerhafte Loesung waere ein cpanm der drei Deps nach
+~/perl5 — ein Eingriff in die Umgebung des Maintainers, daher nicht eigenmaechtig
+gemacht, sondern zur Freigabe vorgelegt.
+## Erledigt (2026-08-16)
+
+Auf Freigabe des Maintainers per cpanm nach ~/perl5 installiert:
+
+    Net::Async::HTTP              0.50   (cpanfile fordert 0.49)
+    Net::Async::WebSocket::Client 0.14   (cpanfile fordert 0.14)
+    Protocol::WebSocket           0.26   (cpanfile fordert keine Mindestversion)
+
+Alle drei liegen in /home/getty/perl5/lib/perl5, per $INC verifiziert. Der
+Scratch-Prefix wird nicht mehr gebraucht.
+
+Verifikation ohne jeden PERL5LIB-Zusatz:
+    p5-net-async-kubernetes  prove -l t/    Files=21 Tests=166 PASS  (MOCK)
+    kubernetes-rest          prove -lr t/   Files=33 Tests=533 PASS  (MOCK)
+TEST_KUBERNETES_REST_KUBECONFIG war in beiden Laeufen per env -u ungesetzt,
+Live-Modus lief nicht, kein Cluster kontaktiert.
+
+Merke fuer die naechste Diagnose: ~/perl5 haengt selbst an PERL5LIB. 'env -u
+PERL5LIB perl -MFoo' laesst deshalb ALLES fehlen, auch laengst installierte
+Module, und sieht nach einer kaputten Installation aus. Zum Pruefen die normale
+Umgebung nehmen und $INC{'Foo/Bar.pm'} ausgeben.
