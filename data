@@ -1,0 +1,128 @@
+---
+claimed_at: 2026-08-16T21:13:12Z
+claimed_by: nak-worker
+class: standard
+completed: 2026-08-16T21:13:08Z
+created: 2026-08-16T16:00:09Z
+id: 24
+priority: medium
+started: 2026-08-16T20:53:48Z
+status: done
+tags:
+- kubeconfig
+- upstream
+- kubernetes-rest
+- diagnostics
+title: 'Kubernetes::REST::Kubeconfig: nutzlose Fehlermeldung bei degeneriertem kubeconfig
+  (Fremd-Repo kubernetes-rest)'
+updated: 2026-08-16T21:13:12Z
+---
+
+ACHTUNG: Fix liegt NICHT in diesem Repo, sondern in der Nachbar-Dist
+/home/getty/dev/kubernetes-rest (Kubernetes::REST).
+Ticket liegt trotzdem hier, weil es aus GitHub Issue #1 von
+p5-net-async-kubernetes stammt. Maschinenwechsel erfolgt (2026-08-16): die Nachbar-Repos liegen jetzt unter
+/home/getty/dev/ und sind von hier aus erreichbar.
+
+## Symptom
+
+Bei einem degenerierten kubeconfig (contexts: null, current-context: "")
+kommt heraus:
+
+    Use of uninitialized value $name in concatenation (.) or string at
+      Kubernetes/REST/Kubeconfig.pm line 183.
+    Context not found:
+
+Also eine uninitialized-Warning plus ein croak ohne Namen dahinter. Der
+Nutzer muss raten, was los ist â genau das ist andk im GitHub Issue #1
+passiert.
+
+## Ort
+
+/home/getty/dev/kubernetes-rest
+lib/Kubernetes/REST/Kubeconfig.pm:317 (Repo-Stand baf2fbe, nach v1.107)
+= Zeile 183 der installierten 1.107 unter ~/perl5
+
+    sub context {
+        my ($self, $name) = @_;
+        my $config = $self->_config or croak $self->_not_found_error;
+        $name //= $self->current_context_name;
+        my $ctx = $self->_find_by_name($config->{contexts}, $name)
+            or croak "Context not found: $name";
+        ...
+
+Bei current-context: "" liefert current_context_name keinen brauchbaren Namen,
+und contexts: null hat ohnehin nichts zum Finden. Aufgerufen wird das aus
+api() (Zeile ~411, $context_name //= $self->current_context_name).
+
+## Bewertung
+
+Dass es fehlschlaegt, ist KORREKT â der kubeconfig ist unbrauchbar. Nur die
+Diagnose taugt nichts. Erwuenscht waere unterschieden:
+
+- kubeconfig definiert ueberhaupt keine contexts -> "kubeconfig defines no contexts: <pfad>"
+- current-context leer/nicht gesetzt -> "kubeconfig has no current-context set: <pfad>"
+- Name gesetzt, aber nicht gefunden -> bisheriges "Context not found: $name"
+
+Analog pruefen: cluster() und user() (gleiches _find_by_name-Muster, gleiche
+Falle bei null-Listen).
+
+## Abhaengigkeit
+
+KEIN Blocker fuer Ticket 23 (Testfix hier). Die beiden sind unabhaengig; 23
+stellt die CPAN-Fails ab, dieses hier macht die Meldung brauchbar.
+
+Getty-dist-Versionsfalle beachten, falls danach ein cpanfile-Pin faellig wird:
+Repo-$VERSION ist immer eine vor CPAN (skill perl-core).
+## Orchestrator-Verifikation (2026-08-16)
+
+Fix umgesetzt in /home/getty/dev/kubernetes-rest (Nachbar-Repo, nicht committet):
+lib/Kubernetes/REST/Kubeconfig.pm, Changes, t/35_kubeconfig_degenerate.t (neu).
+
+Umsetzung: neues _kubeconfig_paths_string (Pfad-Deskriptor aus _not_found_error
+herausgezogen, inkl. Leer-Zweig 'neither KUBECONFIG nor HOME is set') und neues
+_assert_lookup, das VOR jedem Namensvergleich zuschlaegt. Aufgerufen aus context(),
+cluster() und user() — die Luecke bestand in allen dreien, weil cluster/user ihren
+Namen aus dem Kontext ziehen und ein Kontext ohne cluster/user-Eintrag ueber api()
+in dieselbe Falle lief. _find_by_name selbst blieb unangetastet, da alle drei
+Aufrufer jetzt guarden.
+
+Meldungen jetzt:
+  kubeconfig defines no contexts: <pfad>          (Sektion fehlt/null/leer)
+  kubeconfig has no current-context set: <pfad>   (current-context leer)
+  no cluster name given / no user name given      (Kontext nennt keinen)
+  Context not found: <name>                       (unveraendert, echter Lookup)
+
+Bei doppelt degeneriertem Config gewinnt die Sektionspruefung — der fundamentalere
+Defekt, und er bleibt wahr, auch wenn der Aufrufer einen Namen mitgibt.
+
+Selbst nachgefahren: prove -lr t/ -> Files=33 Tests=533 PASS, MOCK
+(TEST_KUBERNETES_REST_KUBECONFIG per env -u explizit ungesetzt, kein Cluster
+kontaktiert). t/35_kubeconfig_degenerate.t einzeln -> 7 Tests PASS, und die Datei
+ist per git add -N git-bekannt (Git::GatherDir-Falle vermieden). Der Agent hat
+red-before-green gegen git show HEAD: geprueft: 5 von 7 Subtests fielen vorher um,
+Subtest 6 haelt in beide Richtungen und pinnt damit die Behauptung, die der Fix
+NICHT aendern darf. Jede Assertion prueft ueber einen croaks_quietly-Helper
+zusaetzlich, dass nichts warnt — sonst koennte die uninitialized-Warning
+unbemerkt zurueckkommen.
+
+Wichtig fuer das cpanfile hier: KEIN Pin-Update jetzt. cpanm --info liefert
+Kubernetes-REST-1.107, das Repo traegt bereits $VERSION 1.108 — die existiert
+nirgends ausser in diesem Working Tree. Ein Pin auf 1.108 macht
+Net::Async::Kubernetes uninstallierbar (Getty-dist-Falle). requires
+'Kubernetes::REST', '1.107' bleibt korrekt: die Aenderung ist reine Diagnostik
+ohne API-Abhaengigkeit. Sobald 1.108 auf CPAN ist, waere ein Bump vertretbar aber
+optional — er kauft nur die lesbare Meldung fuer Downstream-Nutzer, und
+lib/Net/Async/Kubernetes.pm:61-62 ruft Kubernetes::REST::Kubeconfig->new direkt
+auf, also genau die Kette aus andks Report.
+
+Pfadangaben im Ticketkopf auf /home/getty/dev/ korrigiert (Maschinenwechsel).
+
+Offen: Commit/Release in kubernetes-rest und der Follow-up auf GitHub Issue #1 —
+beides nur mit ausdruecklicher Maintainer-Freigabe.
+Committet als 73fcbbb auf master (/home/getty/dev/kubernetes-rest), inkl. Changes-Eintrag unter {{$NEXT}} und t/35_kubeconfig_degenerate.t. Nicht gepusht, nicht released.
+
+cpanfile-Pin in p5-net-async-kubernetes bewusst NICHT angefasst: requires
+'Kubernetes::REST', '1.107' bleibt korrekt, weil die Aenderung reine Diagnostik
+ohne API-Abhaengigkeit ist. Ein Bump waere erst nach einem 1.108-Release auf CPAN
+moeglich und selbst dann optional.
