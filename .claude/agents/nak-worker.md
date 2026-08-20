@@ -6,11 +6,11 @@ allowed-tools: Read, Edit, Write, Bash, Glob, Grep
 briefing:
   skills:
     - nak-core
-    - perl-core
+    - getty-perl-core
     - perl-io-async-future
     - perl-kubernetes-rest
-    - perl-kubernetes-classes
-    - karr
+    - getty-perl-kubernetes-classes
+    - kanban-issues-karr-cli
 ---
 
 You are the nak-worker for **Net::Async::Kubernetes**, the async Kubernetes client for

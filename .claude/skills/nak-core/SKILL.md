@@ -1,6 +1,6 @@
 ---
 name: nak-core
-description: "Net::Async::Kubernetes internals — class inventory, the Kubernetes::REST seam, Watcher/Controller mechanics, websocket duplex transport, dual-mode test harness, invariants and traps. Load for any change to this distribution."
+description: Load before editing Net::Async::Kubernetes — the Kubernetes::REST seam, Watcher and Controller mechanics, websocket duplex transport, the dual-mode test harness.
 ---
 
 # Net::Async::Kubernetes — Core Architecture
@@ -203,6 +203,6 @@ or a live one from the kubeconfig; both added to the process-wide memoized `loop
   CORE.
 - cpanfile pins: `Kubernetes::REST >= 1.106`, `IO::K8s >= 1.105`, `IO::Async >= 0.80`,
   `Net::Async::HTTP >= 0.49`, `Net::Async::WebSocket::Client >= 0.14`, perl 5.020.
-  Both K8s deps are Getty dists — pin released CPAN versions only (skill `perl-core`).
+  Both K8s deps are Getty dists — pin released CPAN versions only (skill `getty-perl-core`).
 - POD style is inline `=method`/`=attr` next to the sub (`Kubernetes.pm`,
   `Watcher.pm`); `Controller.pm` keeps its POD in `__END__` — match per-file.

@@ -6,9 +6,9 @@ allowed-tools: Read, Edit, Write, Bash, Glob, Grep
 briefing:
   skills:
     - nak-core
-    - perl-core
+    - getty-perl-core
     - perl-io-async-future
-    - karr
+    - kanban-issues-karr-cli
 ---
 
 You are the nak-test-writer for **Net::Async::Kubernetes**.
