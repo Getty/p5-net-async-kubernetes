@@ -1,0 +1,19 @@
+---
+class: standard
+completed: 2026-08-31T19:10:07Z
+created: 2026-08-31T19:08:40Z
+id: 28
+priority: low
+started: 2026-08-31T19:10:07Z
+status: done
+tags:
+- github
+- config
+title: 'GH #1: t/03-configure.t faellt bei ~/.kube/config mit null-Feldern (clusters/contexts/users
+  null)'
+updated: 2026-08-31T19:10:07Z
+---
+
+GH#1 (andk, CPAN-Smoker Net-Async-Kubernetes-0.005): t/03-configure.t las die reale ~/.kube/config des Smokers; eine Alt-Datei mit clusters/contexts/users=null liess den Test fehlschlagen. Reporter: 'no urgent need'. Fix-Richtung: (a) Test gegen ambient KUBECONFIG isolieren (fixture/Temp), (b) Parser tolerant gegen null-Felder (null -> leere Liste).
+
+BEFUND: bereits im Repo behoben. t/03-configure.t liest nicht mehr die ambient ~/.kube/config, sondern fakt HOME=/nonexistent + loescht KUBECONFIG und nutzt File::Temp-Fixtures in einem Wegwerf-HOME. Damit ist der gemeldete Smoker-Fail (null-Feld-Config) strukturell ausgeschlossen; dzil test PASS (170) inkl. t/03. GH#1 lokal erledigt. OPTIONAL/deferred (Reporter: 'no urgent need'): Parser tolerant gegen ein reales null-Feld-config machen (null -> leere Liste) fuer echte Nutzung, nicht nur den Test.
