@@ -56,7 +56,7 @@ performance. Pure prose docs, POD wording, and `Changes` notes are not.
 ## Coordination — karr board (always in scope)
 
 Ticket coordination is the orchestrating agent's job, so `karr` is always in scope —
-don't invoke the `karr` skill first, just use it. Git-native kanban; state lives in
+don't invoke the `kanban-issues-karr-cli` skill first, just use it. Git-native kanban; state lives in
 `refs/karr/*`; this repo has its own board (single distribution — no cross-repo
 handoff). Day-to-day:
 
@@ -95,11 +95,11 @@ user explicitly says to handle a specific item; every write is confirmed first.
 - **Getty-dist version trap.** `Kubernetes::REST` and `IO::K8s` are Getty dists: the
   repo `$VERSION` is always one ahead of CPAN, so a version copied from a sibling repo
   into `cpanfile` is uninstallable. Pin to the released version (`cpanm --info`) — full
-  rule in skill `perl-core`.
+  rule in skill `getty-perl-core`.
 
 ## Perl specifics — reference, don't restate
 
-Module loading, cpanfile pinning, and house style: skill `perl-core`. Async/Future
+Module loading, cpanfile pinning, and house style: skill `getty-perl-core`. Async/Future
 lifecycle: skill `perl-io-async-future`. K8s API usage: skills `perl-kubernetes-rest` +
-`perl-kubernetes-classes`. Release conventions: `perl-release-author-getty` +
+`getty-perl-kubernetes-classes`. Release conventions: `getty-perl-release-author-getty` +
 `perl-release-dist-ini`. All force-loaded for `nak-*` agents — do not duplicate here.
