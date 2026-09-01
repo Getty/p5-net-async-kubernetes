@@ -1231,18 +1231,6 @@ sub watcher {
     return $watcher;
 }
 
-sub controller {
-    my ($self, %args) = @_;
-
-    my $controller = Net::Async::Kubernetes::Controller->new(
-        kube => $self,
-        %args,
-    );
-
-    $self->add_child($controller);
-    return $controller;
-}
-
 =method watcher
 
     my $watcher = $kube->watcher('Pod',
@@ -1272,6 +1260,18 @@ Arguments:
 See L<Net::Async::Kubernetes::Watcher> for all available parameters.
 
 =cut
+
+sub controller {
+    my ($self, %args) = @_;
+
+    my $controller = Net::Async::Kubernetes::Controller->new(
+        kube => $self,
+        %args,
+    );
+
+    $self->add_child($controller);
+    return $controller;
+}
 
 =method controller
 

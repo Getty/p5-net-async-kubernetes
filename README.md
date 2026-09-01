@@ -207,7 +207,7 @@ TEST_KUBERNETES_REST_KUBECONFIG=~/.kube/config prove -lv t/
 Run the live feature showcase script (uses a real kubeconfig and a target pod):
 
 ```bash
-KUBECONFIG=~/.kube/config perl -Ilib ex/live_features.pl --namespace default --pod my-pod
+KUBECONFIG=~/.kube/config perl -Ilib eg/live_features.pl --namespace default --pod my-pod
 ```
 
 Options include `--kubeconfig`, `--namespace`, `--pod`, `--container`, `--tail-lines`, and `--port`.

@@ -570,11 +570,13 @@ retrying keeps its entry, and with it its C<attempt> count.
 
 =method get_object
 
-Thin wrapper around C<< $controller->kube->get(...) >>.
+Thin wrapper around C<< $controller->kube->get(...) >>. Returns its
+L<Future>, resolving to the inflated IO::K8s object.
 
 =method list_objects
 
-Thin wrapper around C<< $controller->kube->list(...) >>.
+Thin wrapper around C<< $controller->kube->list(...) >>. Returns its
+L<Future>, resolving to an L<IO::K8s::List>.
 
 =method patch_status
 
@@ -584,13 +586,15 @@ Thin wrapper around C<< $controller->kube->list(...) >>.
     )->get;
 
 Patch the C</status> subresource for an object. Accepts either a class/name
-pair or an object instance plus a C<status> payload.
+pair or an object instance plus a C<status> payload. Returns a L<Future> that
+resolves to the patched object.
 
 =method update_status
 
     $controller->update_status($object)->get;
 
-Update the C</status> subresource for a full object instance.
+Update the C</status> subresource for a full object instance. Returns a
+L<Future> that resolves to the updated object.
 
 =head1 SEE ALSO
 
