@@ -154,8 +154,7 @@ initialization.
 
 =cut
 
-# Lazy internal Kubernetes::REST for request building + response processing
-sub _rest {
+sub rest {
     my ($self) = @_;
     $self->{_rest} //= Kubernetes::REST->new(
         server      => $self->server,
@@ -164,6 +163,39 @@ sub _rest {
         ($self->resource_map ? (resource_map => $self->resource_map) : ()),
     );
 }
+
+=method rest
+
+    my $rest = $kube->rest;
+
+Returns the underlying lazily-built L<Kubernetes::REST> instance used for
+request building and response processing. Exposed for advanced use -- most
+callers want the higher-level CRUD methods instead. The private C<_rest>
+accessor used throughout the internals returns this same cached instance.
+
+=cut
+
+# Lazy internal Kubernetes::REST for request building + response processing
+sub _rest { $_[0]->rest }
+
+sub new_object {
+    my ($self, @args) = @_;
+    return $self->rest->new_object(@args);
+}
+
+=method new_object
+
+    my $cm = $kube->new_object(ConfigMap =>
+        metadata => { name => 'my-config' },
+        data     => { key => 'value' },
+    );
+
+Builds a typed L<IO::K8s> object from a short class name (e.g. C<'Pod'>,
+C<'ConfigMap'>) and either a hashref or a hash of attributes. Delegates to
+L<Kubernetes::REST/new_object>. This is the public path for constructing the
+objects passed to C<create> and C<update>.
+
+=cut
 
 # Lazy Net::Async::HTTP instance
 sub _http {

@@ -1,6 +1,11 @@
 Revision history for Net-Async-Kubernetes
 
 {{$NEXT}}
+ - Add public `rest` and `new_object` methods on the client. `rest` exposes the
+   underlying `Kubernetes::REST` instance and `new_object($kind, %fields)`
+   builds a typed `IO::K8s` object for `create`/`update`, so callers no longer
+   reach through the private `_rest` accessor. `_rest` stays as the private
+   internal accessor and returns the same cached instance as `rest`.
  - Require `IO::K8s` 1.108. Anything below it resolves a bare Kind name such
    as `Role` to whatever top-level package of that name happens to be loadable
    -- `Class::Mite` ships a `lib/Role.pm`, for example -- so that package won

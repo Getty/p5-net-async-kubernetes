@@ -62,7 +62,7 @@ my $pods = $kube->list('Pod', namespace => 'default')->get;
 my $pod = $kube->get('Pod', 'nginx', namespace => 'default')->get;
 
 # Create a resource
-my $cm = $kube->_rest->new_object(ConfigMap =>
+my $cm = $kube->new_object(ConfigMap =>
     metadata => { name => 'my-config', namespace => 'default' },
     data     => { key => 'value' },
 );
