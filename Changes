@@ -9,6 +9,12 @@ Revision history for Net-Async-Kubernetes
    "Role"` (GitHub issue #2, only ever on smokers carrying such a module).
    1.108 reads a bare one-word name as a Kind, so the resource map wins.
    `Event`, `Job`, `Service`, `Binding` and `Scale` share the collision.
+   1.108 also carries the upstream Kubernetes v1.37 sync -- 22 new Kinds
+   (among them the `IO::K8s::Api::Lifecycle` namespace), their supporting
+   types and new fields, all registered for GVK dispatch. The client resolves
+   them transitively through the `Kubernetes::REST` `expand_class` / inflate
+   seam, so watching, listing and CRUD reach the new resources with no change
+   here.
  - Move `Net::Async::Kubernetes::PortForwardSession` into its own file. The
    class was declared inline at the bottom of `Net::Async::Kubernetes`, so the
    provides map pointed at a file that does not carry its name and every
