@@ -1,6 +1,14 @@
 Revision history for Net-Async-Kubernetes
 
 {{$NEXT}}
+ - Require `IO::K8s` 1.108. Anything below it resolves a bare Kind name such
+   as `Role` to whatever top-level package of that name happens to be loadable
+   -- `Class::Mite` ships a `lib/Role.pm`, for example -- so that package won
+   the lookup before the resource map was ever consulted, and creating the
+   object died with `Can't locate object method "_k8s_attr_info" via package
+   "Role"` (GitHub issue #2, only ever on smokers carrying such a module).
+   1.108 reads a bare one-word name as a Kind, so the resource map wins.
+   `Event`, `Job`, `Service`, `Binding` and `Scale` share the collision.
  - Move `Net::Async::Kubernetes::PortForwardSession` into its own file. The
    class was declared inline at the bottom of `Net::Async::Kubernetes`, so the
    provides map pointed at a file that does not carry its name and every
