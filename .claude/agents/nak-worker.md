@@ -9,7 +9,7 @@ briefing:
     - getty-perl-core
     - perl-io-async-future
     - perl-kubernetes-rest
-    - getty-perl-kubernetes-classes
+    - perl-io-k8s-kubernetes-classes
     - kanban-issues-karr-cli
 ---
 

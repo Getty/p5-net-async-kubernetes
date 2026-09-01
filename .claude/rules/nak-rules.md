@@ -101,5 +101,5 @@ user explicitly says to handle a specific item; every write is confirmed first.
 
 Module loading, cpanfile pinning, and house style: skill `getty-perl-core`. Async/Future
 lifecycle: skill `perl-io-async-future`. K8s API usage: skills `perl-kubernetes-rest` +
-`getty-perl-kubernetes-classes`. Release conventions: `getty-perl-release-author-getty` +
+`perl-io-k8s-kubernetes-classes`. Release conventions: `getty-perl-release-author-getty` +
 `perl-release-dist-ini`. All force-loaded for `nak-*` agents — do not duplicate here.
