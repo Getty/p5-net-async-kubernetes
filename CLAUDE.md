@@ -61,4 +61,4 @@ architecture and invariants in `nak-core`, hardlink-shared house skills alongsid
 ## PodWeaver
 
 `[@Author::GETTY]` conventions: inline `=attr`, `=method`, `=seealso`. No manual
-NAME/VERSION/AUTHOR sections. Full rules: skill `perl-release-author-getty`.
+NAME/VERSION/AUTHOR sections. Full rules: skill `getty-perl-release-author-getty`.
