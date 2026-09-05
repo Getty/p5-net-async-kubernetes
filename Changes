@@ -6,8 +6,10 @@ Revision history for Net-Async-Kubernetes
    builds a typed `IO::K8s` object for `create`/`update`, so callers no longer
    reach through the private `_rest` accessor. `_rest` stays as the private
    internal accessor and returns the same cached instance as `rest`.
- - Require `IO::K8s` 1.108. Anything below it resolves a bare Kind name such
-   as `Role` to whatever top-level package of that name happens to be loadable
+ - Require `IO::K8s` 1.108 and `Kubernetes::REST` 1.108 -- the two floors this
+   release actually ships; the entries further down record the intermediate
+   steps that led there. Anything below `IO::K8s` 1.108 resolves a bare Kind
+   name such as `Role` to whatever top-level package of that name is loadable
    -- `Class::Mite` ships a `lib/Role.pm`, for example -- so that package won
    the lookup before the resource map was ever consulted, and creating the
    object died with `Can't locate object method "_k8s_attr_info" via package
@@ -19,7 +21,11 @@ Revision history for Net-Async-Kubernetes
    types and new fields, all registered for GVK dispatch. The client resolves
    them transitively through the `Kubernetes::REST` `expand_class` / inflate
    seam, so watching, listing and CRUD reach the new resources with no change
-   here.
+   here. `Kubernetes::REST` 1.108 is required alongside it because that is the
+   release requiring `IO::K8s` 1.108 in turn: every Kind this client resolves
+   goes through the `Kubernetes::REST` seam and the `IO::K8s` inside it, so
+   pinning only one of the pair would leave the resolution that the GitHub
+   issue #2 fix depends on to whatever version happened to sit underneath.
  - Move `Net::Async::Kubernetes::PortForwardSession` into its own file. The
    class was declared inline at the bottom of `Net::Async::Kubernetes`, so the
    provides map pointed at a file that does not carry its name and every
@@ -137,6 +143,23 @@ Revision history for Net-Async-Kubernetes
    fixture written to a temporary HOME, so it neither skips nor depends on the
    machine, and a companion subtest holds the degenerate config to a catchable
    croak instead of a dead run. Reported by Andreas Koenig, GitHub issue #1.
+ - Load `Net::Async::Kubernetes::Watcher` and
+   `Net::Async::Kubernetes::Controller` at compile time instead of `require`ing
+   them inside `watcher()` and `controller()`. Nothing changes for a caller
+   except when a child module is broken: that now surfaces on
+   `use Net::Async::Kubernetes` rather than on the first `->watcher()` call.
+   There is no load cycle to avoid -- neither child touches the client at
+   compile time.
+ - Move the example scripts from `ex/` to `eg/` and correct the paths naming
+   them. The 0.007 entry below still calls the live-feature demo
+   `ex/live_features.pl`; it ships as `eg/live_features.pl`, alongside
+   `eg/demo.pl` and `eg/watch_pods.pl`.
+ - Documentation pass over the POD: the hand-written `NAME` sections are gone
+   (PodWeaver generates them), `Net::Async::Kubernetes::PortForwardSession` is
+   documented and reachable from `SEE ALSO`, `list()` and the `cp` helpers
+   describe what they actually do, the qualified `group/version/Kind` resource
+   name and the status-subresource write-strip trap are written down, and the
+   `Controller` methods state the `Future` they return and what it resolves to.
 
 0.007     2026-04-15 18:21:50Z
  - Add `Net::Async::Kubernetes::Controller` as a minimal controller runtime.

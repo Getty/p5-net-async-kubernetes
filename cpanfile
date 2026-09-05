@@ -9,6 +9,9 @@ requires 'Future', '0.47';
 requires 'URI';
 requires 'IO::Socket::SSL';
 requires 'Protocol::WebSocket';
+requires 'Carp';
+requires 'File::Temp';
+requires 'Scalar::Util';
 
 requires 'Kubernetes::REST', '1.108';
 requires 'IO::K8s', '1.108';
@@ -16,4 +19,8 @@ requires 'IO::K8s', '1.108';
 on test => sub {
     requires 'Test::More', '0.98';
     requires 'Test::Exception';
+    requires 'JSON::MaybeXS';
+    requires 'File::Spec';
+    requires 'FindBin';
+    requires 'MIME::Base64';
 };
