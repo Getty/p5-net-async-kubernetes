@@ -1,0 +1,161 @@
+---
+block_reason: wartet auf io-k8s-p5 k128 (IO::K8s 1.108) und kubernetes-rest k26 (Kubernetes::REST
+  1.108) auf CPAN -- eigenes cpanfile verlangt beide
+blocked: true
+claimed_at: 2026-09-06T04:52:12Z
+claimed_by: p5-net-async-kubernetes
+class: standard
+created: 2026-09-05T18:51:16Z
+id: 29
+priority: high
+started: 2026-09-05T18:56:44Z
+status: review
+tags:
+- release
+- cpan
+- needs:kubernetes-rest#26
+- escalated-from:kubernetes-ocp#133
+title: Release Net::Async::Kubernetes 0.008 nach CPAN (blockiert OCPs Image-Build)
+updated: 2026-09-06T04:52:12Z
+---
+
+CPAN hat 0.007 (2026-04-15), kubernetes-ocp verlangt 0.008.
+
+Letztes Glied der Release-Kette -- diese Distribution kann erst raus, wenn die
+beiden Upstreams auf CPAN liegen, weil ihr eigenes cpanfile sie verlangt:
+
+  requires Kubernetes::REST 1.108   -> kubernetes-rest k26
+  requires IO::K8s          1.108   -> io-k8s-p5 k128
+
+Reihenfolge:
+  IO::K8s 1.108 -> Kubernetes::REST 1.108 -> HIER 0.008 -> kubernetes-ocp k133
+
+WARUM ES DRAENGT
+kubernetes-ocps cpanfile verlangt seit dessen k125 (commit 7fb412b, 2026-09-01)
+Net::Async::Kubernetes 0.008. Der erste echte CI-Lauf dort (GitHub Actions run
+33928559437, 2026-09-04) bricht in cpm install --cpanfile --snapshot mit
+"FAIL resolve" ab; das OCP-Docker-Image ist aus einem frischen Checkout nicht
+mehr baubar. Vier Distributionen sind betroffen, diese ist eine davon.
+
+STAND HIER
+Unveroeffentlichte Commits seit tag 0.007, $VERSION steht auf 0.008, Changes
+{{$NEXT}} ist gefuellt. Testsuite auf dem Host gruen: 21 Dateien, 169 Tests,
+Result PASS (geprueft 2026-09-05).
+
+Inhalt:
+- public rest und new_object auf dem Client; Aufrufer muessen nicht mehr durch
+  den privaten _rest-Accessor greifen
+- PortForwardSession in eine eigene Datei (die Klasse stand inline am Ende von
+  Net::Async::Kubernetes, die provides-Map zeigte auf eine Datei, die ihren
+  Namen nicht traegt)
+- requires IO::K8s/Kubernetes::REST 1.108 -- wegen der bare-Kind-Aufloesung:
+  unterhalb 1.108 gewann ein ladbares Top-Level-Package namens Role (z.B. aus
+  Class::Mite) die Aufloesung vor der Resource-Map, und das Objekt starb mit
+  Cant locate object method "_k8s_attr_info" (GH #2). Betrifft ebenso Event,
+  Job, Service, Binding, Scale.
+- Doku-Durchgang, eg/-Pfade korrigiert
+
+BEZUG kubernetes-ocp k1
+Dort steht die Maintainer-Entscheidung von 2026-08-12: N::A::K wird gefixt, nicht
+aus OCPs cpanfile geworfen; erst N::A::K, dann robocop neu denken. OCP benutzt die
+Distribution heute schon (OCP::Robocop::Controller), pollt aber noch, statt zu
+watchen. Dieses Release ist nicht der Watch-Loop -- es ist nur das, was 0.008
+ohnehin schon enthaelt und was OCPs Build braucht.
+
+2026-09-05 19:05 RELEASE-VORBEREITUNG 0.008 ABGESCHLOSSEN -- NICHT RELEASED. Kein Tag, kein
+Upload, kein dzil release. Der Maintainer macht das Release selbst.
+
+VORHER LESEN: Die Karte bleibt zu Recht blocked. 0.008 darf erst hoch, wenn
+IO::K8s 1.108 UND Kubernetes::REST 1.108 auf CPAN liegen (io-k8s-p5 k128,
+kubernetes-rest k26). Das eigene cpanfile verlangt beide hart; ein Upload
+davor ergibt eine auf CPAN nicht aufloesbare Distribution -- genau der
+"FAIL resolve", an dem kubernetes-ocps CI schon haengt. Reihenfolge bleibt:
+IO::K8s 1.108 -> Kubernetes::REST 1.108 -> HIER 0.008 -> kubernetes-ocp k133.
+
+ARBEIT LIEGT AUF: branch worktree-release-0008-prep (gepusht), commit 9ebc3d7,
+aufgesetzt auf 87528be. Zwei Dateien geaendert: Changes, cpanfile. Kein Code
+unter lib/ angefasst.
+
+GRUEN (alles auf dem Host, 2026-09-05)
+- prove -l -j4 t/ -> Result PASS, Files=21, Tests=169. MOCK-Modus:
+  TEST_KUBERNETES_REST_KUBECONFIG war NICHT gesetzt, geprueft und protokolliert.
+  t/01-crud.t und t/02-watcher.t skippen wie vorgesehen ohne Cluster. Das
+  bestaetigt die 21/169 aus der Kartenbeschreibung.
+- dzil test -> Result PASS, Files=23, Tests=173 (dazu author-pod-syntax.t;
+  release-changes_has_content.t skippt ausserhalb des Release-Laufs).
+- dzil build -> Exit 0, NULL Warnungen. Die frueher bei jedem Build gemeldete
+  "may not be loadable at install time" ist weg -- das war der Grund fuer den
+  PortForwardSession-Umzug, jetzt belegt statt geglaubt.
+- $VERSION: alle vier Module unter lib/ auf 0.008, keine Ausreisser --
+  Kubernetes.pm, Watcher.pm, Controller.pm und die neu ausgelagerte
+  PortForwardSession.pm.
+- provides-Map im META.json des gebauten Tarballs verifiziert: vier Pakete,
+  jedes 0.008, jedes auf der Datei, die seinen Namen traegt, inklusive
+  Net::Async::Kubernetes::PortForwardSession ->
+  lib/Net/Async/Kubernetes/PortForwardSession.pm. Kubernetes.pm deklariert nur
+  noch ein package. Der Umzug hat also genau das erreicht, wofuer er im
+  Changes steht.
+
+GEAENDERT 1 -- Changes {{$NEXT}} gegen git log 0.007..HEAD
+- KORRIGIERT, sachlich falsch: Der requires-Eintrag nannte nur IO::K8s 1.108,
+  das cpanfile verlangt aber ebenso Kubernetes::REST 1.108. Der letzte
+  Kubernetes::REST-Eintrag weiter unten sagte 1.106 und war damit zwei Bumps
+  veraltet (1.106 -> 1.107 in 2af57e6 -> 1.108 in 6ad466a). Der obere Eintrag
+  nennt jetzt beide Floors, markiert die tieferen Eintraege als die
+  Zwischenschritte, und begruendet die Kopplung: Kubernetes::REST 1.108 ist das
+  Release, das seinerseits IO::K8s 1.108 verlangt, und jede Kind-Aufloesung
+  dieses Clients laeuft durch den Kubernetes::REST-Seam und dessen inneres
+  IO::K8s -- nur eines der beiden zu pinnen ueberliesse die Aufloesung, an der
+  der GH-#2-Fix haengt, der zufaellig installierten Version.
+- ERGAENZT, drei Commits ohne Eintrag: 03ce65b (Watcher und Controller werden
+  zur Compilezeit geladen statt per require im Aufruf -- fuer Aufrufer nur
+  sichtbar, wenn ein Child-Modul kaputt ist), 7a5cc7c (Beispielskripte
+  ex/ -> eg/; der 0.007-Eintrag nennt noch den alten Pfad ex/live_features.pl,
+  deshalb steht die Klarstellung jetzt drin) und der POD-Durchgang (015819f
+  und Umfeld).
+- GEPRUEFT und unveraendert gelassen, weil im Code bestaetigt: rest /
+  new_object (Kubernetes.pm:157/181, _rest ist ein Alias auf rest und gibt
+  dieselbe gecachte Instanz), der PortForwardSession-Umzug (eigene Datei, siehe
+  provides oben), die 1.108-Begruendung mit bare-Kind-Aufloesung und GH #2,
+  sowie die SEE-ALSO- und NAME-Aussagen des POD-Eintrags (kein =head1 NAME mehr
+  in lib/, PortForwardSession steht im SEE ALSO).
+
+GEAENDERT 2 -- cpanfile, Unterdeklaration
+Der Bundle hat KEIN AutoPrereqs; Prereqs::FromCPANfile ist die einzige
+Prereq-Quelle, also fuellt nichts Luecken auf. Nachgetragen:
+- runtime: Carp, File::Temp, Scalar::Util (lib/ benutzt sie direkt; alle core,
+  aber das Nachbar-Dist IO::K8s deklariert core-Scalar::Util ebenso)
+- test: JSON::MaybeXS, File::Spec, FindBin, MIME::Base64
+JSON::MaybeXS ist der einzige echte Befund: nicht core, wird von
+t/lib/MockTransport.pm direkt benutzt und erreichte Smoker bisher nur transitiv
+ueber IO::K8s und Kubernetes::REST. Die core-Eintraege sind Genauigkeit, kein
+Installierbarkeitsfix -- wer sie als Rauschen sieht, kann sie folgenlos wieder
+streichen.
+
+GEPRUEFT, KEIN BEFUND
+- dist.ini ist unveraendert korrekt: name, author, license, copyright,
+  [@Author::GETTY] mit irc = #kubernetes.
+- Der Tarball enthaelt .claude/ und CLAUDE.md. Das ist hauskonsistent, kein
+  Fehler: Kubernetes-REST-1.108.tar.gz versendet dieselben 27 Eintraege. Nicht
+  angefasst.
+- Die 1.108-Pins sind RICHTIG und bleiben stehen. Sie sind der Grund fuer die
+  Blockade, nicht ein Fehler in ihr.
+
+NAECHSTER SCHRITT FUER DEN MAINTAINER
+1. Warten, bis IO::K8s 1.108 und Kubernetes::REST 1.108 auf CPAN sind.
+2. worktree-release-0008-prep nach main mergen (oder 9ebc3d7 cherry-picken).
+3. Erst dann das Release fahren. Bis dahin bleibt die Karte blocked.
+
+MERGE ERLEDIGT 2026-09-05 (kubernetes-ocp, Main-Agent). Schritt 2 des Maintainer-Plans ist erledigt: 9ebc3d7 liegt per --ff-only auf main. Branch worktree-release-0008-prep und der Worktree sind lokal entfernt.
+
+Main ist jetzt 9ebc3d7, 1 Commit vor origin/main. Testsuite auf dem gemergten Stand nachgefahren: 21 Dateien, 169 Tests, Result PASS.
+
+KARTEILEICHE, noch da: origin/worktree-release-0008-prep zeigt weiter auf 9ebc3d7. Reihenfolge beim Aufraeumen ist wichtig -- erst main pushen, dann den Remote-Branch loeschen, sonst haengt der Commit dort unreferenziert. Nicht gemacht, weil Push nach GitHub deine Entscheidung ist (hier immerhin dein eigenes Repo, Getty/p5-net-async-kubernetes, nicht pplu).
+
+UNVERAENDERT GUELTIG: Schritt 1 des Plans steht noch -- IO::K8s 1.108 UND Kubernetes::REST 1.108 muessen vor diesem Upload auf CPAN sein. Karte bleibt zu Recht blocked.
+
+GEPUSHT UND AUFGERAEUMT 2026-09-05. origin/main steht auf 9ebc3d7 (87528be..9ebc3d7, sauberer Fast-Forward). Danach wurde origin/worktree-release-0008-prep geloescht -- in dieser Reihenfolge, damit der Commit auf der Gegenseite nie unreferenziert haengt. Das Repo hat jetzt genau einen Branch, lokal wie remote.
+
+STAND: alles ausser dem Upload selbst ist fertig. Die Karte bleibt zu Recht blocked -- IO::K8s 1.108 UND Kubernetes::REST 1.108 muessen erst auf CPAN.
+
+INTEGRATIONSNACHWEIS 2026-09-06: dzil install gefahren (kein Upload). Build und Testsuite liefen dabei gegen die installierten Vorgaenger der Kette, nicht nur gegen das eigene lib/ -- 'Building and testing ... OK'. Danach OCPs Suite gegen alle drei installierten Staende: 81 Dateien, 1292 Tests, PASS. Bis dahin hatte OCP gegen VERALTETE installierte Kopien getestet (IO::K8s und K::REST je 3 Commits hinterher, N::A::K vom 2026-08-23). Details in kubernetes-ocp k133. Die bindende make test in Docker bleibt bis zum Upload unfahrbar -- sie loest aus CPAN auf.
