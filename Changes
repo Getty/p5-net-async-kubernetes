@@ -1,165 +1,74 @@
 Revision history for Net-Async-Kubernetes
 
 {{$NEXT}}
- - Add public `rest` and `new_object` methods on the client. `rest` exposes the
-   underlying `Kubernetes::REST` instance and `new_object($kind, %fields)`
-   builds a typed `IO::K8s` object for `create`/`update`, so callers no longer
-   reach through the private `_rest` accessor. `_rest` stays as the private
-   internal accessor and returns the same cached instance as `rest`.
- - Require `IO::K8s` 1.108 and `Kubernetes::REST` 1.108 -- the two floors this
-   release actually ships; the entries further down record the intermediate
-   steps that led there. Anything below `IO::K8s` 1.108 resolves a bare Kind
-   name such as `Role` to whatever top-level package of that name is loadable
-   -- `Class::Mite` ships a `lib/Role.pm`, for example -- so that package won
-   the lookup before the resource map was ever consulted, and creating the
-   object died with `Can't locate object method "_k8s_attr_info" via package
-   "Role"` (GitHub issue #2, only ever on smokers carrying such a module).
-   1.108 reads a bare one-word name as a Kind, so the resource map wins.
-   `Event`, `Job`, `Service`, `Binding` and `Scale` share the collision.
-   1.108 also carries the upstream Kubernetes v1.37 sync -- 22 new Kinds
-   (among them the `IO::K8s::Api::Lifecycle` namespace), their supporting
-   types and new fields, all registered for GVK dispatch. The client resolves
-   them transitively through the `Kubernetes::REST` `expand_class` / inflate
-   seam, so watching, listing and CRUD reach the new resources with no change
-   here. `Kubernetes::REST` 1.108 is required alongside it because that is the
-   release requiring `IO::K8s` 1.108 in turn: every Kind this client resolves
-   goes through the `Kubernetes::REST` seam and the `IO::K8s` inside it, so
-   pinning only one of the pair would leave the resolution that the GitHub
-   issue #2 fix depends on to whatever version happened to sit underneath.
- - Move `Net::Async::Kubernetes::PortForwardSession` into its own file. The
-   class was declared inline at the bottom of `Net::Async::Kubernetes`, so the
-   provides map pointed at a file that does not carry its name and every
-   `dzil build` warned it may not be loadable at install time -- and indeed
-   `use Net::Async::Kubernetes::PortForwardSession` failed for anyone loading
-   the class the POD of `port_forward()`, `exec()` and `attach()` names. The
-   code is unchanged and the client loads it at compile time.
+ - Add public `rest` and `new_object($kind, %fields)` on the client: the
+   underlying `Kubernetes::REST` instance and a typed `IO::K8s` object for
+   `create`/`update`, so callers no longer reach through the private `_rest`.
+ - Require `IO::K8s` 1.108 and `Kubernetes::REST` 1.108. Older IO::K8s
+   resolved a bare Kind such as `Role`, `Event`, `Job` or `Service` to any
+   loadable top-level package of that name -- `Class::Mite` ships a
+   `lib/Role.pm` -- so creating the object died with `Can't locate object
+   method "_k8s_attr_info"` on smokers carrying such a module (GitHub issue
+   #2). The pair also brings UTF-8 request bodies (a manifest with a
+   non-ASCII character died with "HTTP::Message content must be bytes"), the
+   right API group paths for Storagemigration and Apiserverinternal, working
+   inflation of KubeAggregator's `APIService`, and the upstream Kubernetes
+   v1.37 sync with 22 new Kinds, all reached through the `Kubernetes::REST`
+   seam with no change here.
+ - Accept a qualified `group/version/Kind` resource name anywhere the client
+   takes one: `list('autoscaling/v1/HorizontalPodAutoscaler')` addresses that
+   version, while the bare Kind keeps the shipped default of v2.
+ - Move `Net::Async::Kubernetes::PortForwardSession` into its own file. It was
+   declared inline in `Net::Async::Kubernetes`, so `use`ing the class the POD
+   of `port_forward()`, `exec()` and `attach()` names failed, and every
+   `dzil build` warned about it. The code is unchanged.
  - Add `on_watch_error` to `Net::Async::Kubernetes::Controller`. Watch `ERROR`
-   events (a `403` arriving mid-stream, for example) were wired nowhere and
-   stayed invisible to the controller. They carry a `Status` hashref rather
-   than a keyed resource object, so they are reported to the callback instead
-   of entering the reconcile workqueue. An `on_error` passed to
+   events (a `403` mid-stream, for example) were wired nowhere; they carry a
+   `Status` hashref rather than a keyed object, so they go to the callback
+   instead of the reconcile workqueue. An `on_error` passed to
    `watch_resource` keeps precedence for that watch.
- - Fix a reference cycle that leaked the client bound to a controller. The
-   controller held a strong reference to `kube` while `$kube->controller(...)`
-   registers the controller as a child, so neither was ever freed. A supplied
-   client is now weakened, as in `Net::Async::Kubernetes::Watcher`; a client
+ - Fix two reference cycles that leaked a controller and its client. The
+   controller held a strong `kube` while the client held the controller as a
+   child, and every reconcile context held a strong `controller` inside an
+   entry the controller owns. Both are now weak, as in `Watcher`; a client
    the controller constructs itself stays owned by it.
- - Fix the controller keeping one workqueue entry per reconcile key for the
-   lifetime of the process. Nothing ever removed an entry, so a controller on
-   a high churn resource grew its keyspace without bound, each entry pinning
-   the last object it saw. A key is now dropped once it reconciles cleanly --
-   a `DELETED` event needs no case of its own, its reconcile ends the same
-   way. Keys that are still queued, dirty or waiting on a retry keep their
-   entry, so backoff history is never lost and the next failure does not
-   restart at attempt 1.
- - Fix a second reference cycle in the controller, this one closed on itself:
-   the reconcile context stored in an entry held a strong `controller`, and
-   the entry lives in the controller. Any entry outliving its reconcile --
-   a failed key, a pending retry, anything still queued at shutdown -- leaked
-   the controller with no outside reference involved. `controller` in the
-   context is now weak, like `kube`. It stays valid for the whole reconcile;
-   a context kept past that no longer keeps the controller alive.
- - Fix the duplex transport reporting `port_forward` in its "not added to an
-   IO::Async::Loop" failure regardless of which method was called; `exec()`
-   and `attach()` now name themselves.
- - Fix a resource name that `IO::K8s` cannot resolve killing the caller
-   instead of failing its `Future`. `expand_class` fails closed -- an
-   unknown, malformed or mismatched apiVersion resolves to undef rather than
-   a bare-name guess -- and that undef went straight into `build_path`, which
-   died with "argument is not a module name", naming neither the resource nor
-   the reason. `list()`, `get()`, `patch()`, `delete()`, `log()`,
-   `port_forward()`, `exec()`, `attach()` and the controller's
-   `patch_status()` now return a failed `Future` naming the resource, keeping
-   the contract their callers await on. The two genuinely synchronous paths,
-   `$kube->expand_class` and starting a watcher, croak with the same message.
- - Fix a controller key stalling after a stop/start cycle. `stop()` cleared the
-   retry timers but left the workqueue filled and the keys on it flagged as
-   queued, so the event a restarted watch delivers for such a key was
-   deduplicated away without ever scheduling a drain -- the key then waited for
-   an unrelated key to drag it out of the queue. `stop()` now clears the queue
-   and those flags together: a restart re-lists and delivers everything still
-   present anyway, and the failure counts stay behind, so a retrying key still
-   resumes at its next attempt number.
- - Fix the reconcile drain abandoning the whole queue when it meets a queued
-   key whose entry is gone, instead of skipping that one key. The state is not
-   reachable today -- an entry is only dropped while its key is not queued --
-   but it made loosening that condition a silent stall for every key behind it.
- - Fix that same stall returning through the requeue of a dirty key. An event
-   arriving while its key reconciles is recorded as dirty instead of queued,
-   and the requeue once that reconcile finished pushed the key back without
-   checking whether the controller had stopped meanwhile -- refilling the
-   queue `stop()` had just emptied, with no drain scheduled to take it out
-   again. The requeue now skips while stopped, like every other place that
-   feeds the queue, and `stop()` clears the dirty flag along with the queued
-   one: it is pending work too, and the restart re-lists that object anyway.
- - Fix `stop()` leaving a watcher attached to the client on every stop/start
-   cycle. `$kube->watcher(...)` registers the watcher as a child of the client,
-   and `stop()` stopped it and dropped it from the watch spec without the
-   matching removal, while `start()` built a fresh one -- so a repeatedly
-   restarted controller piled up stopped watcher notifiers on the client, all
-   of them still reachable. A stopped watch is now detached as well.
- - Require `Kubernetes::REST` 1.106 (was 1.102) and `IO::K8s` 1.105 (was
-   1.008). Kubernetes::REST 1.106 encodes request bodies as UTF-8 bytes;
-   every `create`, `update` and `patch` here builds its body through
-   `prepare_request`, so before that fix a manifest carrying a non-ASCII
-   character died with "HTTP::Message content must be bytes" without ever
-   reaching the cluster. That release requires IO::K8s 1.105 in turn.
- - Require `IO::K8s` 1.106 (was 1.105) for two fixes that land on seams this
-   client uses on every request. `Kubernetes::REST` derives every URL path
-   from `$class->api_version`, and for the Storagemigration and
-   Apiserverinternal groups 1.105 returned a lowercased class-name fragment --
-   so `list()`, `get()` and every writing method addressed
-   `/apis/storagemigration/v1alpha1` and `/apis/apiserverinternal/v1alpha1`,
-   neither of which the API server serves. 1.106 returns the upstream group
-   names. The short names were no better off: they resolved to a bogus
-   `IO::K8s::StorageVersionMigration`, which is not undef, so the
-   fail-closed guard above let it through to `build_path` and its raw
-   "Can't locate ... in @INC" -- exactly the error that guard exists to
-   replace.
- - The second fix is `_expand_class`, which could not match a CamelCase
-   namespace prefix and sent KubeAggregator's `APIService` looking for its
-   spec and status under `IO::K8s::Api::KubeAggregator::V1`. Because each of
-   this client's inflation paths handles a failure differently, one bug had
-   three faces: `get()` died on the response, `list()` dropped every item
-   inside its per-item `eval` and returned an empty `IO::K8s::List`, and a
-   watch handed `on_added` the raw hashref instead of a typed object.
- - Gain a capability with the same release: its exact GVK dispatch (113
-   qualified `$apiVersion/$Kind` map keys, previously none) means a resource
-   name of the form `group/version/Kind` now resolves anywhere this client
-   takes one. `list('autoscaling/v1/HorizontalPodAutoscaler')` addresses
-   `/apis/autoscaling/v1/...`, while the bare `HorizontalPodAutoscaler` keeps
-   reaching the shipped default of v2 -- so a caller can finally target a
-   version other than the default. Under 1.105 the qualified form resolved to
-   undef and failed.
+ - Fix the controller keeping one workqueue entry per key for the lifetime of
+   the process, each pinning the last object it saw. A key is dropped once it
+   reconciles cleanly; keys still queued, dirty or waiting on a retry keep
+   their entry, so backoff history survives.
+ - Fix a controller key stalling after a stop/start cycle. `stop()` left the
+   workqueue filled and its keys flagged queued or dirty, so the event a
+   restarted watch delivered was deduplicated away with no drain scheduled,
+   and a dirty key finishing its reconcile requeued past the stop. `stop()`
+   now clears queue and flags together and the requeue skips while stopped;
+   the failure counts stay, so a retrying key resumes at its next attempt.
+ - Fix `stop()` leaving a stopped watcher attached to the client on every
+   stop/start cycle, so a repeatedly restarted controller piled up notifiers.
+ - Fix the duplex transport naming `port_forward` in its "not added to an
+   IO::Async::Loop" failure whichever method was called; `exec()` and
+   `attach()` now name themselves.
+ - Fix a resource name that `IO::K8s` cannot resolve killing the caller with
+   "argument is not a module name" from `build_path`. `list()`, `get()`,
+   `patch()`, `delete()`, `log()`, `port_forward()`, `exec()`, `attach()` and
+   the controller's `patch_status()` now return a failed `Future` naming the
+   resource; `$kube->expand_class` and starting a watcher croak with the same
+   message.
  - Stop `t/03-configure.t` reading the kubeconfig of the machine it runs on.
-   The subtest guarded only on the file existing and then loaded
-   `$ENV{KUBECONFIG} // "$ENV{HOME}/.kube/config"`, so the result depended on
-   the smoker: every report for 0.005 from one CPAN Testers machine was a FAIL
-   and nobody else saw it, because that machine carried a kubeconfig with
-   `contexts: null` and an empty `current-context`. Resolution croaked, the
-   subtest died before running a single test, and the file exited 255. A valid
-   foreign kubeconfig is no better a basis -- an exec auth plugin or an
-   unreachable cluster fails just as readily. The subtest now runs against a
-   fixture written to a temporary HOME, so it neither skips nor depends on the
-   machine, and a companion subtest holds the degenerate config to a catchable
-   croak instead of a dead run. Reported by Andreas Koenig, GitHub issue #1.
- - Load `Net::Async::Kubernetes::Watcher` and
-   `Net::Async::Kubernetes::Controller` at compile time instead of `require`ing
-   them inside `watcher()` and `controller()`. Nothing changes for a caller
-   except when a child module is broken: that now surfaces on
-   `use Net::Async::Kubernetes` rather than on the first `->watcher()` call.
-   There is no load cycle to avoid -- neither child touches the client at
-   compile time.
- - Move the example scripts from `ex/` to `eg/` and correct the paths naming
-   them. The 0.007 entry below still calls the live-feature demo
-   `ex/live_features.pl`; it ships as `eg/live_features.pl`, alongside
-   `eg/demo.pl` and `eg/watch_pods.pl`.
- - Documentation pass over the POD: the hand-written `NAME` sections are gone
-   (PodWeaver generates them), `Net::Async::Kubernetes::PortForwardSession` is
-   documented and reachable from `SEE ALSO`, `list()` and the `cp` helpers
-   describe what they actually do, the qualified `group/version/Kind` resource
-   name and the status-subresource write-strip trap are written down, and the
-   `Controller` methods state the `Future` they return and what it resolves to.
+   One CPAN Testers smoker carried a kubeconfig with `contexts: null`, so
+   every 0.005 report from it was a FAIL nobody else saw. The subtest now
+   runs against a fixture in a temporary HOME, and a companion subtest holds
+   the degenerate config to a catchable croak. Reported by Andreas Koenig,
+   GitHub issue #1.
+ - Load `Net::Async::Kubernetes::Watcher` and `::Controller` at compile time
+   instead of `require`ing them in `watcher()` and `controller()`: a broken
+   child module now surfaces on `use Net::Async::Kubernetes`.
+ - Move the example scripts from `ex/` to `eg/`; the 0.007 entry's
+   `ex/live_features.pl` ships as `eg/live_features.pl`.
+ - Documentation pass: PodWeaver generates the `NAME` sections,
+   `PortForwardSession` is documented and in `SEE ALSO`, `list()` and the `cp`
+   helpers describe what they do, the qualified resource name and the
+   status-subresource write-strip trap are written down, and the `Controller`
+   methods state the `Future` they return.
 
 0.007     2026-04-15 18:21:50Z
  - Add `Net::Async::Kubernetes::Controller` as a minimal controller runtime.
