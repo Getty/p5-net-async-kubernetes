@@ -13,7 +13,7 @@ Revision history for Net-Async-Kubernetes
    non-ASCII character died with "HTTP::Message content must be bytes"), the
    right API group paths for Storagemigration and Apiserverinternal, working
    inflation of KubeAggregator's `APIService`, and the upstream Kubernetes
-   v1.37 sync with 22 new Kinds, all reached through the `Kubernetes::REST`
+   v1.37 sync with 11 new Kinds, all reached through the `Kubernetes::REST`
    seam with no change here.
  - Accept a qualified `group/version/Kind` resource name anywhere the client
    takes one: `list('autoscaling/v1/HorizontalPodAutoscaler')` addresses that
