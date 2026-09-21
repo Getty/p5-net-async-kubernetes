@@ -1,0 +1,19 @@
+---
+class: standard
+completed: 2026-09-21T04:28:03Z
+created: 2026-09-21T04:26:00Z
+id: 31
+priority: low
+started: 2026-09-21T04:28:03Z
+status: done
+tags:
+- release
+- changes
+title: 'Changes NEXT section: fix Kind count in v1.37 sync bullet (says 22, should
+  be 11)'
+updated: 2026-09-21T04:28:03Z
+---
+
+NAK Changes pending section says the upstream Kubernetes v1.37 sync brought 22 new Kinds. IO::K8s own Changes pending section states 11 new Kinds, 103 supporting types and 48 added fields for that same v1.37.0 sync (file: io-k8s-p5/Changes). 22 does not match 11 anywhere in the IO::K8s or Kubernetes::REST Changes entries. Since GitHub::CreateRelease publishes the Changes section verbatim as release notes, this number should be corrected to 11, or reworded to avoid restating a figure that lives in the upstream dist Changes and can drift. Not a functional or build blocker, purely a Changes accuracy fix, non-behavioral docs edit.
+
+Fixed in Changes NEXT block: 'v1.37 sync with 22 new Kinds' -> '11 new Kinds', matching IO::K8s own Changes for the v1.37.0 sync (11 new Kinds, 103 supporting types, 48 added fields). Non-behavioral doc fix by orchestrating agent.
