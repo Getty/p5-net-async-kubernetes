@@ -1,6 +1,6 @@
 package Net::Async::Kubernetes::Controller;
 # ABSTRACT: Minimal controller runtime for Net::Async::Kubernetes
-our $VERSION = '0.008';
+our $VERSION = '0.009';
 use strict;
 use warnings;
 use parent 'IO::Async::Notifier';
