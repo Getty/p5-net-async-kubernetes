@@ -1,0 +1,13 @@
+---
+class: standard
+created: 2026-09-24T16:26:05Z
+id: 33
+priority: high
+status: backlog
+tags:
+- watcher
+title: 'Watcher schluckt Transportfehler: on_fail retryt endlos ohne on_error'
+updated: 2026-09-24T16:26:05Z
+---
+
+Aus kubernetes-ocp k170 (Live-Test 2026-09-24): Faellt der Watch-Request als Future fehl (z. B. fehlendes IO::Async::SSL, TLS-/Auth-Fehler, API nicht erreichbar), ruft Watcher::_start_watch per on_fail nach 1s erneut _start_watch - endlos, ohne on_error. Consumer merken nie etwas (robocop lief stumm). Done: Transportfehler an on_error melden (mit Grund), Backoff statt fixer 1s, optional max_retries; Test.
