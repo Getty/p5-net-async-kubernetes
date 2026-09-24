@@ -1,0 +1,13 @@
+---
+class: standard
+created: 2026-09-24T16:12:15Z
+id: 32
+priority: high
+status: backlog
+tags:
+- deps
+title: IO::Async::SSL als requires deklarieren (https/wss)
+updated: 2026-09-24T16:12:15Z
+---
+
+Aus kubernetes-ocp (Live-Test 2026-09-24): Net::Async::Kubernetes spricht https (Watch) und wss (port_forward/exec/attach) ueber Net::Async::HTTP bzw. Net::Async::WebSocket::Client. Die brauchen IO::Async::SSL, das dort nur recommends ist; N::A::K requiret nur IO::Socket::SSL. Folge: ein Consumer, der nur N::A::K installiert, scheitert zur Laufzeit mit "Cant locate IO/Async/SSL.pm" (OCP-Image, robocop-Pod). Done: requires IO::Async::SSL in cpanfile, Test, Release.
