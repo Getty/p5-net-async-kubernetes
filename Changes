@@ -19,6 +19,15 @@ Revision history for Net-Async-Kubernetes
    call forms as `patch()` but defaults to a merge patch, since custom
    resources reject a strategic one; `update_status` PUTs the whole object,
    like `update()`.
+ - Add `ensure()`, `ensure_all()` and `ensure_only()`, the idempotent
+   create-or-update of `Kubernetes::REST` as Future chains. `ensure` creates
+   what is missing and updates what exists at its current resourceVersion,
+   retrying a conflict once; an existing PersistentVolumeClaim and a running
+   or succeeded Job are left alone, a failed Job is replaced. `ensure_all`
+   applies its objects strictly one after another. `ensure_only` then
+   deletes every object with the given label that it was not handed,
+   matching by Kind, so a kinds entry written as group/version/Kind does not
+   delete the objects just applied.
 
 0.008     2026-09-22 04:13:56Z
  - Add public `rest` and `new_object($kind, %fields)` on the client: the

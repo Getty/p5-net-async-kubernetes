@@ -793,6 +793,307 @@ Arguments:
 
 =cut
 
+# One request through the Kubernetes::REST seam, resolving with the unchecked
+# Kubernetes::REST::HTTPResponse -- for ensure(), which branches on the status
+# code (404 absent, 409 conflict). check_response would fold that code into an
+# error string it could only be read back out of with a regex.
+sub _request_unchecked {
+    my ($self, $method, $path, %opts) = @_;
+    return $self->_do_request($self->_rest->prepare_request($method, $path, %opts));
+}
+
+sub ensure {
+    my ($self, $object) = @_;
+
+    my $rest = $self->_rest;
+    if (ref($object) eq 'HASH') {
+        my $kind = $object->{kind} or croak "ensure: hashref must have 'kind'";
+        $object = $rest->k8s->struct_to_object($self->expand_class($kind), $object);
+    }
+    croak "ensure requires an IO::K8s object or hashref" unless blessed($object);
+
+    my $class = ref($object);
+    (my $kind = $class) =~ s/.*:://;
+    my $metadata = $object->metadata or croak "object must have metadata";
+    my $name = $metadata->name or croak "object must have metadata.name";
+    my $namespace = $metadata->namespace;
+    my $path = $rest->build_path($class, name => $name, namespace => $namespace);
+
+    # GET the object as the server has it now; $context names the step.
+    my $fetch = sub {
+        my ($context) = @_;
+        return $self->_request_unchecked('GET', $path)->then(sub {
+            my ($response) = @_;
+            $rest->check_response($response, "$context $kind/$name");
+            return Future->done($rest->inflate_object($class, $response));
+        });
+    };
+
+    # PUT at the server's resourceVersion. A 409 means the object changed
+    # between GET and PUT: fetch it once more and retry once, no further.
+    my $replace = sub {
+        my ($existing) = @_;
+        $metadata->resourceVersion($existing->metadata->resourceVersion);
+        return $self->_request_unchecked('PUT', $path, body => $object->TO_JSON)->then(sub {
+            my ($response) = @_;
+            if ($response->status == 409) {
+                return $fetch->('ensure refetch')->then(sub {
+                    my ($current) = @_;
+                    $metadata->resourceVersion($current->metadata->resourceVersion);
+                    return $self->update($object);
+                });
+            }
+            $rest->check_response($response, "update $class");
+            return Future->done($rest->inflate_object($class, $response));
+        });
+    };
+
+    # POST. A 409 means it was created by someone else after our GET: take
+    # that one (PVC) or update it at its resourceVersion, without a retry.
+    my $create = sub {
+        my $collection = $rest->build_path($class, namespace => $namespace);
+        return $self->_request_unchecked('POST', $collection, body => $object->TO_JSON)->then(sub {
+            my ($response) = @_;
+            if ($response->status == 409) {
+                return $fetch->('ensure post-409 get')->then(sub {
+                    my ($current) = @_;
+                    return Future->done($current) if $kind eq 'PersistentVolumeClaim';
+                    $metadata->resourceVersion($current->metadata->resourceVersion);
+                    return $self->update($object);
+                });
+            }
+            $rest->check_response($response, "create $class");
+            return Future->done($rest->inflate_object($class, $response));
+        });
+    };
+
+    return $self->_request_unchecked('GET', $path)->then(sub {
+        my ($response) = @_;
+        return $create->() if $response->status == 404;
+        $rest->check_response($response, "ensure get $kind/$name");
+        my $existing = $rest->inflate_object($class, $response);
+
+        # An existing claim is never rewritten.
+        return Future->done($existing) if $kind eq 'PersistentVolumeClaim';
+
+        # A Job's pod template is immutable: a running or succeeded Job stays,
+        # any other is replaced. A failing delete does not stop the create.
+        if ($kind eq 'Job') {
+            my $status = $existing->status;
+            return Future->done($existing)
+                if $status && ($status->succeeded || $status->active);
+            return Future->call(sub { $self->delete($existing) })
+                ->else(sub { Future->done })
+                ->then(sub { $self->create($object) });
+        }
+
+        return $replace->($existing);
+    });
+}
+
+=method ensure
+
+    my $future = $kube->ensure($pod);
+    my $obj = $future->get;
+
+    # or from a plain hashref (treated as a Kubernetes manifest):
+    my $future = $kube->ensure({
+        apiVersion => 'v1',
+        kind       => 'Secret',
+        metadata   => { name => 'foo', namespace => 'default' },
+        stringData => { password => 'hunter2' },
+    });
+
+Idempotent create-or-update. GETs the object by kind/name/namespace: if it is
+missing, creates it; if it exists, updates it at the server's
+C<resourceVersion>, which this method writes back into the object passed in.
+Returns a L<Future> that resolves to the resulting IO::K8s object.
+
+Accepts a typed IO::K8s object or a plain hashref; a hashref must carry a
+C<kind> field and uses manifest-style camelCase keys (C<stringData>, not
+C<string_data>).
+
+Handles the create/update race: a 409 on update (something else changed the
+object between GET and PUT) refetches once and retries the update; a 409 on
+create (something else created it between GET and POST) refetches and
+updates instead.
+
+Two kinds get special handling because their spec is immutable after
+creation: an existing C<PersistentVolumeClaim> is left unchanged, and an
+existing C<Job> is left unchanged while it is active or has succeeded, and
+deleted and recreated otherwise.
+
+Errors that are known before any request is made -- a hashref without
+C<kind>, a value that is neither an object nor a hashref, an object missing
+C<metadata>/C<metadata.name>, or an unknown C<kind> -- croak synchronously,
+as with L</update>. Anything that goes wrong during the request flow itself
+fails the Future instead.
+
+Arguments:
+
+=over 4
+
+=item C<$object> - IO::K8s object or hashref manifest (must have C<kind> if a
+hashref)
+
+=back
+
+=cut
+
+sub ensure_all {
+    my ($self, @objects) = @_;
+
+    # Strictly one after another: object N+1 is only started once object N
+    # is done, so a later object may rely on an earlier one (a Namespace and
+    # what lives in it). Any error, a croak from ensure() included, fails
+    # the chain and nothing after it is started.
+    my @results;
+    my $f = Future->done;
+    for my $object (@objects) {
+        $f = $f->then(sub {
+            return $self->ensure($object);
+        })->then(sub {
+            push @results, @_;
+            return Future->done;
+        });
+    }
+
+    return $f->then(sub { Future->done(@results) });
+}
+
+=method ensure_all
+
+    my $future = $kube->ensure_all(@objects);
+    my @results = $future->get;
+
+Batch form of L</ensure>. Applies each object in order, one at a time --
+object N+1 is only started once object N has resolved, so a later object may
+depend on an earlier one (a Namespace before what lives in it). Returns a
+L<Future> that resolves to the list of results in input order.
+
+If any object fails -- including a croak from L</ensure>, which becomes a
+failure here -- the Future fails and no later object is started.
+C<ensure_all> itself never croaks synchronously.
+
+Arguments:
+
+=over 4
+
+=item C<@objects> - IO::K8s objects or hashref manifests, as accepted by
+L</ensure>
+
+=back
+
+=cut
+
+sub ensure_only {
+    my ($self, %args) = @_;
+
+    my $label      = $args{label} or croak "ensure_only requires 'label'";
+    my @objects    = @{ $args{objects} || [] };
+    my @kinds      = @{ $args{kinds} || [] };
+    my @namespaces = @{ $args{namespaces} || [undef] };
+
+    my $rest = $self->_rest;
+    for my $object (@objects) {
+        next unless ref($object) eq 'HASH';
+        my $kind = $object->{kind} or croak "ensure_only: hashref must have 'kind'";
+        $object = $rest->k8s->struct_to_object($self->expand_class($kind), $object);
+    }
+
+    # (Kind, namespace, name). The Kind comes from the object's class on both
+    # sides, so a qualified 'group/version/Kind' in kinds still recognises
+    # the objects it lists instead of deleting them.
+    my $key_of = sub {
+        my ($object) = @_;
+        (my $kind = ref $object) =~ s/.*:://;
+        my $metadata = $object->metadata;
+        return join("\0", $kind, $metadata->namespace // '', $metadata->name);
+    };
+
+    return $self->ensure_all(@objects)->then(sub {
+        my @applied = @_;
+        my %expected = map { $key_of->($_) => 1 } @objects;
+
+        # One Kind x namespace after another. A list that fails is skipped,
+        # a delete that fails is ignored -- as in the synchronous client.
+        my $f = Future->done;
+        for my $kind (@kinds) {
+            for my $namespace (@namespaces) {
+                $f = $f->then(sub {
+                    return Future->call(sub {
+                        $self->list($kind,
+                            labelSelector => $label,
+                            (defined $namespace ? (namespace => $namespace) : ()),
+                        );
+                    })->else(sub {
+                        return Future->done(undef);
+                    })->then(sub {
+                        my ($list) = @_;
+                        my $deletes = Future->done;
+                        return $deletes unless $list;
+                        for my $item (@{ $list->items }) {
+                            next if $expected{ $key_of->($item) };
+                            $deletes = $deletes->then(sub {
+                                return Future->call(sub { $self->delete($item) })
+                                    ->else(sub { Future->done });
+                            });
+                        }
+                        return $deletes;
+                    });
+                });
+            }
+        }
+
+        return $f->then(sub { Future->done(@applied) });
+    });
+}
+
+=method ensure_only
+
+    my $future = $kube->ensure_only(
+        label      => 'app.kubernetes.io/component=queen',
+        objects    => \@objects,
+        kinds      => [qw(Role RoleBinding ClusterRoleBinding)],
+        namespaces => ['default', 'kube-system', undef],
+    );
+    my @applied = $future->get;
+
+Like L</ensure_all>, but also deletes anything matching the label selector in
+the given kinds and namespaces that is not present in C<objects>. Use this
+for resources where stale objects must not survive (e.g. RBAC). Croaks
+synchronously if C<label> is missing.
+
+Applies C<objects> via L</ensure_all>, then for each kind in C<kinds> and
+each namespace in C<namespaces>, lists resources of that kind carrying the
+label and deletes any that do not match one of the just-applied objects by
+kind, namespace and name -- so a qualified C<'group/version/Kind'> entry in
+C<kinds> still recognises the objects it lists rather than deleting them. A
+C<namespaces> entry of C<undef> scans cluster-scoped resources; if
+C<namespaces> is omitted, only cluster-scoped resources are scanned. A list
+or delete request that fails is skipped or ignored, as in the synchronous
+client.
+
+Returns a L<Future> that resolves to the list of applied objects (from
+L</ensure_all>).
+
+Arguments:
+
+=over 4
+
+=item C<label> - Label selector matching stale objects to delete (required)
+
+=item C<objects> - ArrayRef of objects/hashrefs to apply, as for L</ensure_all>
+
+=item C<kinds> - ArrayRef of resource kinds to scan for stale objects
+
+=item C<namespaces> - ArrayRef of namespaces to scan, C<undef> for
+cluster-scoped; defaults to cluster-scoped only
+
+=back
+
+=cut
+
 sub log {
     my ($self, $short_class, @rest_args) = @_;
 
