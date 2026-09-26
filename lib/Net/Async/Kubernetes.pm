@@ -320,8 +320,19 @@ sub list {
     my $rest = $self->_rest;
     my $class = $rest->expand_class($short_class)
         // return Future->fail($self->_unknown_resource_error($short_class));
+
+    # Selectors are query parameters; build_path only knows path segments and
+    # would drop them silently, turning a filtered list into a full one.
+    my %params;
+    for my $selector (qw(labelSelector fieldSelector)) {
+        my $value = delete $args{$selector};
+        $params{$selector} = $value if defined $value;
+    }
+
     my $path = $rest->build_path($class, %args);
-    my $req = $rest->prepare_request('GET', $path);
+    my $req = $rest->prepare_request('GET', $path,
+        %params ? (parameters => \%params) : (),
+    );
 
     return $self->_do_request($req)->then(sub {
         my ($response) = @_;
@@ -336,9 +347,14 @@ sub list {
     my $list = $future->get;
     my @pods = @{ $list->items };
 
+    my $future = $kube->list('Pod', labelSelector => 'app=web');
+
 List resources of the given type. Returns a L<Future> that resolves to an
 L<IO::K8s::List>. Its C<items> accessor holds the ArrayRef of inflated
 IO::K8s objects.
+
+C<labelSelector> and C<fieldSelector> are sent as query parameters, so
+filtering happens server-side rather than on the list that comes back.
 
 Arguments:
 
@@ -348,7 +364,8 @@ Arguments:
 qualified C<'group/version/Kind'> name to pin a specific API version -- see
 L</expand_class>
 
-=item C<%args> - Optional parameters (C<namespace>, etc.)
+=item C<%args> - Optional parameters: C<namespace>, C<labelSelector>,
+C<fieldSelector>, etc.
 
 =back
 
