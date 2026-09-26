@@ -3,6 +3,7 @@ requires 'perl', '5.020';
 requires 'IO::Async', '0.80';
 requires 'IO::Async::Loop';
 requires 'IO::Async::Notifier';
+requires 'IO::Async::SSL', '0.12';
 requires 'Net::Async::HTTP', '0.49';
 requires 'Net::Async::WebSocket::Client', '0.14';
 requires 'Future', '0.47';

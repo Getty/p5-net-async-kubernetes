@@ -1,6 +1,12 @@
 Revision history for Net-Async-Kubernetes
 
 {{$NEXT}}
+ - Require `IO::Async::SSL`. `Net::Async::HTTP` and
+   `Net::Async::WebSocket::Client` load it for every https request and wss
+   session but only recommend it, so a consumer that installed just this
+   distribution died with "Can't locate IO/Async/SSL.pm" on its first
+   request to a cluster. The minimum, 0.12, is the version `Net::Async::HTTP`
+   itself insists on.
 
 0.008     2026-09-22 04:13:56Z
  - Add public `rest` and `new_object($kind, %fields)` on the client: the
