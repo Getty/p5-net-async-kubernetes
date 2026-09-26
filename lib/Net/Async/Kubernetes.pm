@@ -499,8 +499,63 @@ Arguments:
 
 =cut
 
-sub patch {
-    my ($self, $class_or_object, @rest_args) = @_;
+sub update_status {
+    my ($self, $object) = @_;
+
+    my $rest = $self->_rest;
+    my $class = ref($object);
+    my $metadata = $object->metadata or croak "object must have metadata";
+    my $name = $metadata->name or croak "object must have metadata.name";
+    my $namespace = $metadata->namespace;
+
+    my $path = $rest->build_path($class,
+        name        => $name,
+        namespace   => $namespace,
+        subresource => 'status',
+    );
+    my $req = $rest->prepare_request('PUT', $path, body => $object->TO_JSON);
+
+    return $self->_do_request($req)->then(sub {
+        my ($response) = @_;
+        $rest->check_response($response, "update_status $class");
+        return Future->done($rest->inflate_object($class, $response));
+    });
+}
+
+=method update_status
+
+    my $future = $kube->update_status($node);
+    my $updated = $future->get;
+
+Replace a resource's B<status> through the C</status> subresource. The whole
+object is sent, as with L</update>, but the server only stores the C<status>
+it carries and leaves C<spec> and C<metadata> untouched. Returns a L<Future>
+that resolves to the updated object.
+
+Needs a current C<resourceVersion> and fails with a 409 conflict if the
+object changed on the server in the meantime. A missing C<metadata> or
+C<metadata.name> croaks synchronously, as with L</update>. Prefer
+L</patch_status> when you are setting individual status fields.
+
+Arguments:
+
+=over 4
+
+=item C<$object> - IO::K8s object with C<metadata.name> (and C<namespace> if
+namespaced) and the desired C<status>
+
+=back
+
+=cut
+
+# Argument handling shared by patch() and patch_status(): the object form and
+# both class+name forms, the required patch document and the patch type.
+# Returns (undef, $class, $name, $namespace, $patch, $content_type), or just
+# the failure message, which the caller turns into a failed Future. $label
+# names the calling method in those messages; $default_type is the patch type
+# used when the caller passes none.
+sub _patch_args {
+    my ($self, $label, $default_type, $class_or_object, @rest_args) = @_;
 
     my $rest = $self->_rest;
     my ($class, $name, $namespace, $patch, $patch_type);
@@ -508,12 +563,12 @@ sub patch {
     if (ref($class_or_object) && blessed($class_or_object)) {
         my $object = $class_or_object;
         $class = ref($object);
-        my $metadata = $object->metadata or return Future->fail("object must have metadata");
-        $name = $metadata->name or return Future->fail("object must have metadata.name");
+        my $metadata = $object->metadata or return "object must have metadata";
+        $name = $metadata->name or return "object must have metadata.name";
         $namespace = $metadata->namespace;
         my %args = @rest_args;
-        $patch = $args{patch} // return Future->fail("patch requires 'patch' parameter");
-        $patch_type = $args{type} // 'strategic';
+        $patch = $args{patch} // return "$label requires 'patch' parameter";
+        $patch_type = $args{type} // $default_type;
     } else {
         my %args;
         if (@rest_args >= 1 && !ref($rest_args[0]) && $rest_args[0] !~ /^(name|namespace|patch|type)$/) {
@@ -522,15 +577,15 @@ sub patch {
         } elsif (@rest_args % 2 == 0) {
             %args = @rest_args;
         } else {
-            return Future->fail("Invalid arguments to patch()");
+            return "Invalid arguments to $label()";
         }
 
         $class = $rest->expand_class($class_or_object)
-            // return Future->fail($self->_unknown_resource_error($class_or_object));
-        $name = $args{name} or return Future->fail("name required for patch");
+            // return $self->_unknown_resource_error($class_or_object);
+        $name = $args{name} or return "name required for $label";
         $namespace = $args{namespace};
-        $patch = $args{patch} // return Future->fail("patch requires 'patch' parameter");
-        $patch_type = $args{type} // 'strategic';
+        $patch = $args{patch} // return "$label requires 'patch' parameter";
+        $patch_type = $args{type} // $default_type;
     }
 
     my %patch_types = (
@@ -539,7 +594,18 @@ sub patch {
         json      => 'application/json-patch+json',
     );
     my $content_type = $patch_types{$patch_type}
-        // return Future->fail("Unknown patch type '$patch_type'");
+        // return "Unknown patch type '$patch_type'";
+
+    return (undef, $class, $name, $namespace, $patch, $content_type);
+}
+
+sub patch {
+    my ($self, $class_or_object, @rest_args) = @_;
+
+    my $rest = $self->_rest;
+    my ($error, $class, $name, $namespace, $patch, $content_type)
+        = $self->_patch_args('patch', 'strategic', $class_or_object, @rest_args);
+    return Future->fail($error) if defined $error;
 
     my $path = $rest->build_path($class, name => $name, namespace => $namespace);
     my $req = $rest->prepare_request('PATCH', $path,
@@ -582,6 +648,79 @@ Arguments:
 =item C<patch> - HashRef of changes to apply (required)
 
 =item C<type> - Patch type: C<'strategic'> (default), C<'merge'>, or C<'json'>
+
+=back
+
+=cut
+
+sub patch_status {
+    my ($self, $class_or_object, @rest_args) = @_;
+
+    my $rest = $self->_rest;
+    my ($error, $class, $name, $namespace, $patch, $content_type)
+        = $self->_patch_args('patch_status', 'merge', $class_or_object, @rest_args);
+    return Future->fail($error) if defined $error;
+
+    my $path = $rest->build_path($class,
+        name        => $name,
+        namespace   => $namespace,
+        subresource => 'status',
+    );
+    my $req = $rest->prepare_request('PATCH', $path,
+        body => $patch, content_type => $content_type);
+
+    return $self->_do_request($req)->then(sub {
+        my ($response) = @_;
+        $rest->check_response($response, "patch_status $class");
+        return Future->done($rest->inflate_object($class, $response));
+    });
+}
+
+=method patch_status
+
+    # By class and name
+    my $future = $kube->patch_status('OCPNode', 'cp-1',
+        namespace => 'ocp',
+        patch     => { status => { phase => 'Ready' } },
+    );
+
+    # Or by object
+    my $future = $kube->patch_status($node,
+        patch => { status => { phase => 'Ready' } },
+    );
+
+Partially update a resource's B<status> through the C</status> subresource.
+Once a CustomResourceDefinition declares C<subresources: { status: {} }>, the
+API server drops the C<status> stanza from every write to the main endpoint
+and still answers 2xx -- so a C<status> written via L</patch> or L</update>
+is silently discarded. This method writes to C</status> instead.
+
+Takes the same call forms and arguments as L</patch> (object, or class plus
+name in either the shorthand or fully-keyed form). The patch document is
+sent unchanged and carries its own C<status> key.
+
+The default patch type is C<merge>, not C<strategic> as in L</patch>: custom
+resources reject strategic merge patch with a 415, and C<merge> works for
+built-in kinds too. Pass C<type =E<gt> 'strategic'> explicitly to patch the
+status of a built-in resource when you need array merge semantics.
+
+Returns a L<Future> that resolves to the patched object; bad arguments, an
+unknown patch C<type>, or a server error fail the Future, as with L</patch>.
+
+Arguments:
+
+=over 4
+
+=item C<$class_or_object> - Resource class name or IO::K8s object
+
+=item C<name> - Resource name (required unless passing object)
+
+=item C<namespace> - Namespace (if namespaced)
+
+=item C<patch> - HashRef with a C<status> key (or ArrayRef of operations when
+C<type> is C<json>)
+
+=item C<type> - Patch type: C<'merge'> (default), C<'strategic'>, or C<'json'>
 
 =back
 
