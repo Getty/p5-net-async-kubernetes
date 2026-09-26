@@ -2,7 +2,6 @@
 name: nak-release-manager
 description: "Owns nak's commits and release readiness — cuts commits from the worker's commit-ready tree, writes commit messages and Changes entries, moves karr cards to done. Release audit: Net::Async::Kubernetes before a CPAN release — cpanfile deps declared and pinned to released versions, [@Author::GETTY] version strategy honoured, Changes current, dzil build clean. Workers never commit; this agent does. Never pushes, tags or releases."
 model: sonnet
-allowed-tools: Read, Edit, Write, Bash, Glob, Grep
 briefing:
   skills:
     - getty-git-commit-style

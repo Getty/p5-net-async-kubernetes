@@ -2,7 +2,6 @@
 name: nak-test-writer
 description: "Write Net::Async::Kubernetes tests using the dual-mode harness (t/lib/MockTransport.pm + t/lib/TestKube.pm) — the same test file runs against mock or live cluster. Mock tests must never require a cluster. Use for test additions, regression scaffolding, and debugging via transport interception."
 model: sonnet
-allowed-tools: Read, Edit, Write, Bash, Glob, Grep
 briefing:
   skills:
     - nak-core
