@@ -51,7 +51,7 @@ principle and lane are in `.claude/rules/nak-rules.md`.
 |---|---|
 | Implement / refactor / debug behavior-relevant code | `nak-worker` (default) |
 | Write/extend tests (mock harness, dual-mode) | `nak-test-writer` |
-| Pre-release audit | `nak-release-checker` |
+| Commits, `Changes`, card → done, pre-release audit | `nak-release-manager` |
 | POD in the house format | `nak-pod-writer` |
 
 The agents carry their skills via `briefing.skills` (see `.claude/agents/`); the main

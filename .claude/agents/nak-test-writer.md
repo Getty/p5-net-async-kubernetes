@@ -8,7 +8,7 @@ briefing:
     - nak-core
     - getty-perl-core
     - perl-io-async-future
-    - kanban-issues-karr-cli
+    - kanban-issues-karr-ticket
 ---
 
 You are the nak-test-writer for **Net::Async::Kubernetes**.

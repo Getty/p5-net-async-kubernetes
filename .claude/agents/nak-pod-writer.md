@@ -5,8 +5,8 @@ model: sonnet
 allowed-tools: Read, Edit, Grep, Glob
 briefing:
   skills:
-    - getty-perl-release-author-getty
     - nak-core
+    - getty-perl-pod
 ---
 
 You are the nak-pod-writer for **Net::Async::Kubernetes**.
