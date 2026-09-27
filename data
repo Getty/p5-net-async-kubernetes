@@ -1,0 +1,19 @@
+---
+claimed_at: 2026-09-27T21:22:30Z
+claimed_by: backlog-5
+class: standard
+completed: 2026-09-27T21:22:25Z
+created: 2026-09-27T03:20:12Z
+id: 51
+priority: low
+started: 2026-09-27T20:35:20Z
+status: done
+tags:
+- watcher
+title: 'Watcher: sofort geschlossener Stream reconnectet ohne Backoff'
+updated: 2026-09-27T21:22:30Z
+---
+
+Endet ein Stream direkt nach einem ERROR-Event außer 410 oder schließt ein 200 sofort ohne Daten, reconnectet der Watcher ohne Backoff. Mögliche enge Schleife gegen den API-Server. Vorbestehend, in k33 bewusst unverändert.
+
+Commit e8c275a
