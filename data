@@ -1,0 +1,20 @@
+---
+claimed_at: 2026-09-27T20:34:26Z
+claimed_by: backlog-4
+class: standard
+completed: 2026-09-27T20:34:18Z
+created: 2026-09-27T04:55:34Z
+id: 62
+priority: low
+started: 2026-09-27T19:38:34Z
+status: done
+tags:
+- kubeconfig
+- errors
+title: Konstruktor verschluckt 'Context not found' ohne kubeconfig-Pfad
+updated: 2026-09-27T20:34:26Z
+---
+
+Wird nur context übergeben (ohne kubeconfig-Pfad), schluckt der Konstruktor den Fehler "Context not found" und meldet stattdessen "server or kubeconfig required". Die echte Ursache sollte durchkommen. Aufgefallen in Kubernetes::Comb Client::Async. Nebenbei: der Konstruktor nimmt nur eine komplette resource_map, keine Provider per with => [...] wie Kubernetes::REST.
+
+Commit f2f8237402d7c9a0e968dbce700676690570460f
