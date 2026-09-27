@@ -31,7 +31,13 @@ Uses Dist::Zilla with `[@Author::GETTY]` plugin bundle.
 ```bash
 prove -l t/                    # Mock mode (no cluster needed) — the default check
 TEST_KUBERNETES_REST_KUBECONFIG=~/.kube/config prove -lv t/   # Live mode (minikube!)
+maint/prove-pinned.sh          # Mock mode against the cpanfile's minimum Kubernetes::REST / IO::K8s
 ```
+
+`maint/prove-pinned.sh` builds an isolated local::lib with exactly the versions the
+`cpanfile` pins (first run needs network and a compiler) and runs the suite against it,
+so nothing newer from `~/perl5` leaks in. Run it whenever a change could depend on a
+feature the pinned Kubernetes::REST does not have yet.
 
 Dual-mode architecture (`t/lib/MockTransport.pm`, `t/lib/TestKube.pm`) — the same
 tests run against mock or live cluster. Live mode mutates the target cluster; details

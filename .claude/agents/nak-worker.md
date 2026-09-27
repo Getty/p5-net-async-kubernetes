@@ -32,4 +32,6 @@ Never `git commit`: leave the tree commit-ready and report what changed and why,
 default check after every change. The same files run live against a real cluster when
 `TEST_KUBERNETES_REST_KUBECONFIG` is set — never set it yourself; live runs mutate the
 target cluster and are only done on explicit instruction against minikube. Always state
-which mode was green.
+which mode was green. `maint/prove-pinned.sh` runs the same mock suite against the
+`cpanfile`'s minimum Kubernetes::REST and IO::K8s in an isolated local::lib — run it
+too when a change leans on the Kubernetes::REST seam, and name the versions it loaded.

@@ -365,6 +365,24 @@ or a live one from the kubeconfig; both added to the process-wide memoized `loop
 - Run: `prove -l t/` (mock) · `TEST_KUBERNETES_REST_KUBECONFIG=~/.kube/config
   prove -lv t/` (live, minikube only — mutates the cluster).
 
+### Against the pinned Kubernetes::REST / IO::K8s (k66)
+
+`maint/prove-pinned.sh [--lib DIR] [--setup] [--setup-only] [-- PROVE_ARGS]` reads
+both minimum versions from the `cpanfile`, installs exactly those plus the rest of
+the cpanfile (test phase included, `--notest`) into a self-contained `cpanm -L`
+local::lib — default `${TMPDIR:-/tmp}/nak-pinned-REST-<pin>-IOK8s-<pin>`, reused
+while the cpanfile is unchanged (`--setup` reruns cpanm) — and runs prove (default
+`-lr t/`; one file: `-- -l t/42-mock-discover.t`) with `PERL5LIB`, `PERLLIB`,
+`PERL5OPT`, `PERL_LOCAL_LIB_ROOT`, `PERL_MB_OPT`, `PERL_MM_OPT`, `PERL_CPANM_OPT`,
+`HARNESS_PERL_SWITCHES` and `TEST_KUBERNETES_REST_KUBECONFIG` unset. First it prints
+the loaded versions and paths and stops on a version other than the pin, a module
+loaded from outside DIR, or a copy of either dist in another `@INC` dir. Never an
+`-I` overlay of an older `lib/` instead: it still finds what that release lacks in
+`~/perl5` (1.109's `Kubernetes/REST/APIError.pm` next to 1.108's `REST.pm` — t/39
+then expects an APIError object from a `check_response` that throws a string). A
+sibling working tree is checked with `prove -l -I/home/getty/dev/kubernetes-rest/lib`
+(read only). cpanm needs the network on first setup.
+
 ## Invariants & traps
 
 - `list()` returns `IO::K8s::List` — always `->items`.
@@ -383,8 +401,8 @@ or a live one from the kubeconfig; both added to the process-wide memoized `loop
   `Net::Async::WebSocket::Client >= 0.14`, `Future >= 0.47`, perl 5.020. Both K8s deps
   are Getty dists — pin released CPAN versions only (skill `getty-perl-core`).
 - The locally installed Kubernetes::REST / IO::K8s is often ahead of the pin. Check
-  behaviour that matters against the pinned release — `git archive <tag> lib` from the
-  sibling repo into a scratch dir, then `prove -l -I<dir>/lib …`.
+  behaviour that matters against the pinned releases with `maint/prove-pinned.sh`
+  (see the test harness section), not with a `-I` overlay of an older `lib/`.
 - Kubernetes::REST 1.108's `inflate_object`/`inflate_list`/`process_watch_chunk`
   resolve the class name again: a single-segment class (`'+Gizmo'` → `Gizmo`) is read
   as a Kind — dies, drops list items, or inflates as whatever the map's short key
