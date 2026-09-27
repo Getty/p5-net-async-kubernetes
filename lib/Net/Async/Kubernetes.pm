@@ -846,6 +846,23 @@ sub _manifest_to_object {
     return $rest->k8s->struct_to_object($class, $manifest);
 }
 
+# The apiVersion and Kind an object is an instance of, for ensure() and
+# ensure_only() to tell resources apart by. A typed object answers from its
+# class (api_version(), kind()); IO::K8s::Unstructured from its instance data,
+# since its class name says nothing about what it holds. The last segment of a
+# class name is not enough on its own: a CRD is free to reuse a built-in Kind
+# name in its own group. Mirrors the private helper of the same name in
+# Kubernetes::REST, which is not part of its public seam.
+sub _api_version_and_kind {
+    my ($self, $object) = @_;
+    my $api_version = ref($object) eq 'IO::K8s::Unstructured' ? $object->apiVersion
+                    : $object->can('api_version')           ? $object->api_version
+                    : undef;
+    my $kind = $object->can('kind') ? $object->kind : undef;
+    ($kind = ref $object) =~ s/.*::// unless defined $kind;
+    return ($api_version // '', $kind);
+}
+
 sub ensure {
     my ($self, $object) = @_;
 
@@ -854,7 +871,14 @@ sub ensure {
     croak "ensure requires an IO::K8s object or hashref" unless blessed($object);
 
     my $class = ref($object);
-    (my $kind = $class) =~ s/.*:://;
+    my ($api_version, $kind) = $self->_api_version_and_kind($object);
+    # The special cases below are the built-in core v1 PersistentVolumeClaim
+    # and batch/v1 Job only. The apiVersion is compared exactly, not just its
+    # group: the Job branch reads batch/v1's status fields and deletes what it
+    # takes for a failed Job, so an apiVersion it was not written for falls
+    # through to the plain update, where a mismatch fails loudly instead.
+    my $is_pvc = $api_version eq 'v1'       && $kind eq 'PersistentVolumeClaim';
+    my $is_job = $api_version eq 'batch/v1' && $kind eq 'Job';
     my $metadata = $object->metadata or croak "object must have metadata";
     my $name = $metadata->name or croak "object must have metadata.name";
     my $namespace = $metadata->namespace;
@@ -898,7 +922,7 @@ sub ensure {
             if ($response->status == 409) {
                 return $fetch->('ensure post-409 get')->then(sub {
                     my ($current) = @_;
-                    return Future->done($current) if $kind eq 'PersistentVolumeClaim';
+                    return Future->done($current) if $is_pvc;
                     $metadata->resourceVersion($current->metadata->resourceVersion);
                     return $self->update($object);
                 });
@@ -915,14 +939,16 @@ sub ensure {
         my $existing = $rest->inflate_object($class, $response);
 
         # An existing claim is never rewritten.
-        return Future->done($existing) if $kind eq 'PersistentVolumeClaim';
+        return Future->done($existing) if $is_pvc;
 
         # A Job's pod template is immutable: a running or succeeded Job stays,
         # any other is replaced. A failing delete does not stop the create.
-        if ($kind eq 'Job') {
-            my $status = $existing->status;
+        # The status is read from TO_JSON, not status(): an
+        # IO::K8s::Unstructured Job has no status accessor.
+        if ($is_job) {
+            my $status = $existing->TO_JSON->{status} || {};
             return Future->done($existing)
-                if $status && ($status->succeeded || $status->active);
+                if $status->{succeeded} || $status->{active};
             return Future->call(sub { $self->delete($existing) })
                 ->else(sub { Future->done })
                 ->then(sub { $self->create($object) });
@@ -966,9 +992,13 @@ create (something else created it between GET and POST) refetches and
 updates instead.
 
 Two kinds get special handling because their spec is immutable after
-creation: an existing C<PersistentVolumeClaim> is left unchanged, and an
-existing C<Job> is left unchanged while it is active or has succeeded, and
-deleted and recreated otherwise.
+creation: an existing core C<v1> C<PersistentVolumeClaim> is left unchanged,
+and an existing C<batch/v1> C<Job> is left unchanged while it is active or has
+succeeded, and deleted and recreated otherwise. Both are recognised by
+apiVersion and Kind together -- the object's C<api_version> and C<kind> --
+never by the class name. A custom resource that reuses one of these Kind
+names in its own group is ensured like any other object, and so is a C<Job>
+under any apiVersion other than C<batch/v1>.
 
 Errors that are known before any request is made -- a hashref without
 C<kind>, a value that is neither an object nor a hashref, an object missing
@@ -1049,19 +1079,20 @@ sub ensure_only {
             if ref($object) eq 'HASH';
     }
 
-    # (Kind, namespace, name), taken from the object on both sides - never
-    # from the kinds entry, which may be qualified ('autoscaling/v1/...') and
-    # would then match nothing, deleting the objects just applied. The Kind is
-    # the object's own kind(): class-derived for a typed object, instance data
-    # for IO::K8s::Unstructured, whose class name says nothing about its Kind.
-    # No version in the key: the same resource listed through another
-    # version's class is still the same resource.
+    # (group, Kind, namespace, name), taken from the object on both sides -
+    # never from the kinds entry, which may be qualified ('autoscaling/v1/...')
+    # and would then match nothing, deleting the objects just applied. Group
+    # and Kind come from _api_version_and_kind: class-derived for a typed
+    # object, instance data for IO::K8s::Unstructured. The group keeps the same
+    # Kind name in two groups apart (Istio's and the Gateway API's Gateway);
+    # the core group is ''. No version in the key: the same resource listed
+    # through another version's class is still the same resource.
     my $key_of = sub {
         my ($object) = @_;
-        my $kind = $object->can('kind') ? $object->kind : undef;
-        ($kind = ref $object) =~ s/.*::// unless defined $kind;
+        my ($api_version, $kind) = $self->_api_version_and_kind($object);
+        my ($group) = $api_version =~ m{\A(.*)/[^/]*\z};
         my $metadata = $object->metadata;
-        return join("\0", $kind, $metadata->namespace // '', $metadata->name);
+        return join("\0", $group // '', $kind, $metadata->namespace // '', $metadata->name);
     };
 
     return $self->ensure_all(@objects)->then(sub {
@@ -1124,9 +1155,13 @@ croaks, and nothing is applied or deleted.
 Applies C<objects> via L</ensure_all>, then for each kind in C<kinds> and
 each namespace in C<namespaces>, lists resources of that kind carrying the
 label and deletes any that do not match one of the just-applied objects by
-Kind, namespace and name. The Kind is each object's own C<kind>, so a
+API group, Kind, namespace and name. Group and Kind are each object's own --
+the group from its C<api_version>, the Kind from its C<kind> -- so a
 qualified C<'group/version/Kind'> entry in C<kinds> still recognises the
-objects it lists rather than deleting them. The version is not compared: an
+objects it lists rather than deleting them. The same Kind name in another
+group is another resource: with Istio's C<networking.istio.io> Gateway in
+C<objects>, a labelled Gateway API C<gateway.networking.k8s.io> Gateway of
+the same name and namespace is deleted. The version is not compared: an
 object applied as C<autoscaling/v1> is kept when the listing goes through
 C<autoscaling/v2>. A C<namespaces> entry of C<undef> scans cluster-scoped
 resources; if C<namespaces> is omitted, only cluster-scoped resources are

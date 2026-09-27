@@ -22,18 +22,20 @@ Revision history for Net-Async-Kubernetes
  - Add `ensure()`, `ensure_all()` and `ensure_only()`, the idempotent
    create-or-update of `Kubernetes::REST` as Future chains. `ensure` creates
    what is missing and updates what exists at its current resourceVersion,
-   retrying a conflict once; an existing PersistentVolumeClaim and a running
-   or succeeded Job are left alone, a failed Job is replaced. `ensure_all`
-   applies its objects strictly one after another. `ensure_only` then
-   deletes every object with the given label that it was not handed,
-   matching by Kind, so a kinds entry written as group/version/Kind does not
-   delete the objects just applied.
+   retrying a conflict once; an existing core v1 PersistentVolumeClaim and a
+   running or succeeded batch/v1 Job are left alone, a failed one is
+   replaced, and a custom resource reusing either Kind name is updated like
+   any other object. `ensure_all` applies its objects strictly one after
+   another. `ensure_only` then deletes every object with the given label
+   that it was not handed, matching by Kind, so a kinds entry written as
+   group/version/Kind does not delete the objects just applied.
    A hashref's `apiVersion` selects the class, so an `autoscaling/v1`
    HorizontalPodAutoscaler is applied as v1 rather than as the v2 the bare
    Kind maps to; an `apiVersion` no class serves croaks before any request,
    naming the Kind and the version. `ensure_only` matches by each object's
-   own `kind`, so objects that share a class name but not a Kind no longer
-   shield each other from the prune.
+   own API group and `kind`, so neither objects that share a class name but
+   not a Kind nor the same Kind in two groups (Istio's and the Gateway API's
+   Gateway) shield each other from the prune.
  - Fix a bare unknown Kind (`$kube->get('Bogus', ...)`) dying synchronously
    with "Can't locate IO/K8s/Bogus.pm". `Kubernetes::REST` resolves such a
    name to a fabricated `IO::K8s::Bogus` rather than undef, so it slipped
