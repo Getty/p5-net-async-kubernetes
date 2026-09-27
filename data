@@ -1,0 +1,25 @@
+---
+claimed_at: 2026-09-27T00:51:27Z
+claimed_by: nak-followups
+class: standard
+completed: 2026-09-27T00:39:30Z
+created: 2026-09-26T22:18:08Z
+id: 39
+priority: medium
+started: 2026-09-27T00:04:20Z
+status: done
+tags:
+- ensure
+title: 'ensure und ensure_only: Hashref-apiVersion ignoriert'
+updated: 2026-09-27T00:51:27Z
+---
+
+Wie kubernetes-rest k34: Hashref-Manifeste werden nur über kind typisiert, ein autoscaling/v1-HPA landet als v2. Nach dem Fix in Kubernetes::REST die Semantik hier nachziehen.
+
+Scope erweitert nach kubernetes-rest k33 und k34: 1. Hashref mit apiVersion über expand_class mit kind und apiVersion auflösen, unbekannte apiVersion croakt mit Kind und apiVersion, ohne apiVersion wie bisher, gemeinsamer privater Helfer für ensure und ensure_only. 2. ensure_only-Schlüssel wie in Kubernetes::REST: Kind über die kind-Methode des Objekts, sonst letzter Teil des Klassennamens, damit Unstructured-Objekte verschiedener Kinds nicht kollidieren.
+
+Umgesetzt auf feat/status-ensure, uncommittet. prove -lr t/ Mock-Modus 28 Dateien 231 Tests PASS, dzil build sauber.
+
+2026-09-27 00:39 Committed as 2035671: Resolve ensure manifests by their apiVersion and key ensure_only by kind. Verified in an isolated worktree, prove -lr t/ mock mode 27 files 220 tests PASS.
+
+2026-09-27 00:51 Commit neu geschnitten mit Changes-Eintrag, neuer Hash cd6316f.
