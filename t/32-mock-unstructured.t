@@ -156,6 +156,7 @@ sub unstructured { IO::K8s::Unstructured->FROM_HASH(manifest(@_)) }
 
 my $NOT_FOUND = { kind => 'Status', status => 'Failure', message => 'not found', code => 404 };
 my $SUCCESS   = { kind => 'Status', apiVersion => 'v1', status => 'Success' };
+my $BG        = '?propagationPolicy=Background';   # what ensure and ensure_only delete with
 
 # ============================================================================
 # Path building
@@ -446,12 +447,12 @@ subtest 'ensure: the Job and PVC special cases follow the instance data' => sub 
     MockTransport::reset();
     MockTransport::mock_response('GET', "$BATCH/broken", manifest('batch/v1', 'Job', 'broken',
         metadata => { resourceVersion => '4' }, status => { failed => 1 }));
-    MockTransport::mock_response('DELETE', "$BATCH/broken", $SUCCESS);
+    MockTransport::mock_response('DELETE', "$BATCH/broken$BG", $SUCCESS);
     MockTransport::mock_response('POST', $BATCH, manifest('batch/v1', 'Job', 'broken',
         metadata => { resourceVersion => '5' }));
     my $recreated = eval { $kube->ensure(unstructured('batch/v1', 'Job', 'broken'))->get };
     is($@, '', 'failed batch/v1 Job: ensure does not die');
-    is_deeply(calls(), [ "GET $BATCH/broken", "DELETE $BATCH/broken", "POST $BATCH" ],
+    is_deeply(calls(), [ "GET $BATCH/broken", "DELETE $BATCH/broken$BG", "POST $BATCH" ],
         'failed batch/v1 Job: deleted and recreated, no PUT');
     is($recreated && $recreated->metadata->resourceVersion, '5',
         'failed batch/v1 Job: the recreated object');
@@ -507,8 +508,8 @@ subtest 'ensure_only: Unstructured items key on their own Kind, not the class na
         apiVersion => 'example.com/v1', kind => 'GadgetList',
         items      => [ $item->('Gadget', 'foo') ],
     });
-    MockTransport::mock_response('DELETE', "$WIDGETS/stale", $SUCCESS);
-    MockTransport::mock_response('DELETE', "$GADGETS/foo", $SUCCESS);
+    MockTransport::mock_response('DELETE', "$WIDGETS/stale$BG", $SUCCESS);
+    MockTransport::mock_response('DELETE', "$GADGETS/foo$BG", $SUCCESS);
 
     my @applied = eval {
         $kube->ensure_only(
@@ -520,7 +521,7 @@ subtest 'ensure_only: Unstructured items key on their own Kind, not the class na
     };
     is($@, '', 'ensure_only does not die');
     isa_ok($applied[0], 'IO::K8s::Unstructured', 'the applied object');
-    is_deeply([ sort @{ requests('DELETE') } ], [ "$GADGETS/foo", "$WIDGETS/stale" ],
+    is_deeply([ sort @{ requests('DELETE') } ], [ "$GADGETS/foo$BG", "$WIDGETS/stale$BG" ],
         'the applied Widget foo stays; the stale Widget and the same-named Gadget go');
 };
 
@@ -540,7 +541,7 @@ subtest 'ensure_only: an Unstructured item keys on the group in its own apiVersi
         apiVersion => 'gateway.example.com/v1', kind => 'GatewayList',
         items      => [ { apiVersion => 'gateway.example.com/v1', kind => 'Gateway', %$web } ],
     });
-    MockTransport::mock_response('DELETE', "$OTHER_GW/web", $SUCCESS);
+    MockTransport::mock_response('DELETE', "$OTHER_GW/web$BG", $SUCCESS);
 
     eval {
         $kube->ensure_only(
@@ -552,7 +553,7 @@ subtest 'ensure_only: an Unstructured item keys on the group in its own apiVersi
     };
     is($@, '', 'ensure_only does not die');
     is_deeply(requests('POST'), [ $ISTIO_GW ], 'the Istio Gateway was applied');
-    is_deeply(requests('DELETE'), [ "$OTHER_GW/web" ],
+    is_deeply(requests('DELETE'), [ "$OTHER_GW/web$BG" ],
         'the Unstructured gateway.example.com Gateway web goes');
 };
 

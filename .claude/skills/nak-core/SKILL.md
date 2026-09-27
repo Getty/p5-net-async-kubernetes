@@ -18,7 +18,9 @@ objects. `$VERSION` is hand-written in every module; dzil bumps it.
   noted): `list` → `IO::K8s::List` (use `->items`!; `labelSelector`/`fieldSelector`
   go out as query parameters), `get`/`create`/`update`/`patch` → inflated object,
   `patch_status` (PATCH `.../status`, default type `merge`) / `update_status` (PUT
-  `.../status`, whole object) → inflated object, `delete` → `1`, `ensure` → object,
+  `.../status`, whole object) → inflated object, `delete` → `1` (`propagationPolicy`
+  Background|Foreground|Orphan as query parameter; any other value or unknown option key
+  fails the Future), `ensure` → object,
   `ensure_all` → objects in input order, `ensure_only` → the applied objects, `log` →
   full text or `undef` with `on_line`, `port_forward`/`exec`/`attach` → session,
   `cp_to_pod`/`cp_from_pod` → `{local,remote,bytes,stderr,status}`. Non-Future:
@@ -153,15 +155,17 @@ croaks with.
   Kind.
 - `ensure`: unchecked GET → 404: POST; POST 409 → refetch → the same path as an
   existing object. Existing: core `v1` PersistentVolumeClaim returned unchanged;
-  `batch/v1` Job returned while active/succeeded, else delete (failure ignored) +
-  `create`; anything else PUT at the server's resourceVersion (written back into the
-  caller's object), a 409 there refetches once and calls `update` (no further retry).
+  `batch/v1` Job returned while active/succeeded, else delete with `propagationPolicy`
+  Background (failure ignored) + `create`; anything else PUT at the server's
+  resourceVersion (written back into the caller's object), a 409 there refetches once
+  and calls `update` (no further retry).
   Special cases are matched by `_api_version_and_kind` (exact apiVersion + Kind; class
   data for typed objects, instance data for Unstructured) — never by class name.
 - `ensure_all`: strictly sequential Future chain; the first failure stops it.
 - `ensure_only`: resolves every hashref first, then `ensure_all`, then per kind ×
   namespace (sequential) `_list_request` and per unexpected item (sequential)
-  `_delete_request`. Key = (API group, Kind, namespace, name) from each object —
+  `_delete_request` with `propagationPolicy` (option, default Background; an unknown
+  value croaks up front). Key = (API group, Kind, namespace, name) from each object —
   never from the `kinds` string; no version. A 404 on list or delete is silent;
   any other failure (HTTP error, transport error, unresolvable `kinds` entry) is
   `carp`ed (`ensure_only: cannot list <Kind> in namespace '<ns>' | at cluster scope,

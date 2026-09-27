@@ -35,6 +35,7 @@ sub make_kube {
 my $V1  = '/apis/autoscaling/v1/namespaces/default/horizontalpodautoscalers';
 my $V2  = '/apis/autoscaling/v2/namespaces/default/horizontalpodautoscalers';
 my $SEL = 'app=web';
+my $BG  = '?propagationPolicy=Background';
 
 sub hpa {
     my ($api_version, $name) = @_;
@@ -53,8 +54,8 @@ sub mock_v1_listing {
         kind => 'HorizontalPodAutoscalerList', apiVersion => 'autoscaling/v1',
         items => [ hpa('autoscaling/v1', 'keep'), hpa('autoscaling/v1', 'stale') ],
     });
-    MockTransport::mock_response('DELETE', "$V1/stale", { kind => 'Status', status => 'Success' });
-    MockTransport::mock_response('DELETE', "$V1/keep",  { kind => 'Status', status => 'Success' });
+    MockTransport::mock_response('DELETE', "$V1/stale$BG", { kind => 'Status', status => 'Success' });
+    MockTransport::mock_response('DELETE', "$V1/keep$BG",  { kind => 'Status', status => 'Success' });
 }
 
 sub deleted_paths {
@@ -80,7 +81,7 @@ subtest "qualified name in 'kinds' keeps the objects it just ensured" => sub {
     my @applied = $f->get;
 
     is(scalar(@applied), 1, 'one object applied');
-    is_deeply(deleted_paths(), ["$V1/stale"],
+    is_deeply(deleted_paths(), ["$V1/stale$BG"],
         'only the unexpected item is deleted, the ensured one survives');
 };
 
@@ -102,7 +103,7 @@ subtest 'expected objects match by Kind, not by class (v2 object, v1 listing)' =
         namespaces => ['default'],
     )->get;
 
-    is_deeply(deleted_paths(), ["$V1/stale"],
+    is_deeply(deleted_paths(), ["$V1/stale$BG"],
         'the v1 listing of the same resource recognises the v2-typed object');
 };
 

@@ -40,6 +40,7 @@ sub requests {
 }
 
 my $SEL        = '?labelSelector=app=demo';
+my $BG         = '?propagationPolicy=Background';
 my $CM_DEFAULT = '/api/v1/namespaces/default/configmaps';
 my $CM_OTHER   = '/api/v1/namespaces/other/configmaps';
 my $DELETED    = { kind => 'Status', apiVersion => 'v1', status => 'Success' };
@@ -90,7 +91,7 @@ sub ensure_only_warnings {
 subtest 'a Kind the cluster does not serve (list 404) is skipped silently' => sub {
     my $kube = make_kube();
     mock_cm_cluster($CM_DEFAULT => [ cm_item('keep-me'), cm_item('stale') ]);
-    MockTransport::mock_response('DELETE', "$CM_DEFAULT/stale", $DELETED);
+    MockTransport::mock_response('DELETE', "$CM_DEFAULT/stale$BG", $DELETED);
     # No Role list registered: the mock answers 404, like a cluster that does
     # not serve the Kind.
 
@@ -103,14 +104,14 @@ subtest 'a Kind the cluster does not serve (list 404) is skipped silently' => su
     is(scalar @$applied, 1, 'the applied object is returned');
     ok((grep { $_ eq "/apis/rbac.authorization.k8s.io/v1/namespaces/default/roles$SEL" }
         @{ requests('GET') }), 'the Role list was attempted');
-    is_deeply(requests('DELETE'), [ "$CM_DEFAULT/stale" ], 'the next kinds entry is still pruned');
+    is_deeply(requests('DELETE'), [ "$CM_DEFAULT/stale$BG" ], 'the next kinds entry is still pruned');
 };
 
 subtest 'a failed list warns with Kind, namespace and reason; the rest still runs' => sub {
     my $kube = make_kube();
     mock_cm_cluster($CM_OTHER => [ cm_item('stale', 'other') ]);
     refuse('GET', $CM_DEFAULT . $SEL, 403);
-    MockTransport::mock_response('DELETE', "$CM_OTHER/stale", $DELETED);
+    MockTransport::mock_response('DELETE', "$CM_OTHER/stale$BG", $DELETED);
 
     my ($warnings, $applied) = ensure_only_warnings($kube,
         objects    => [ keep_me_cm($kube) ],
@@ -127,7 +128,7 @@ subtest 'a failed list warns with Kind, namespace and reason; the rest still run
     unlike($w, qr/ line \d+\..* line \d+\./s, 'one location, not a second from the caught croak');
 
     is(scalar @$applied, 1, 'the applied object is still returned');
-    is_deeply(requests('DELETE'), [ "$CM_OTHER/stale" ], 'the other namespace is still pruned');
+    is_deeply(requests('DELETE'), [ "$CM_OTHER/stale$BG" ], 'the other namespace is still pruned');
 };
 
 subtest 'a failed cluster-scoped list says so' => sub {
@@ -191,8 +192,8 @@ subtest 'a delete 404 is silent, a failed delete warns and the prune goes on' =>
     my $kube = make_kube();
     mock_cm_cluster($CM_DEFAULT => [ map { cm_item($_) } qw( keep-me gone locked stale ) ]);
     # No DELETE registered for gone: the mock answers 404 - already deleted.
-    refuse('DELETE', "$CM_DEFAULT/locked", 403);
-    MockTransport::mock_response('DELETE', "$CM_DEFAULT/stale", $DELETED);
+    refuse('DELETE', "$CM_DEFAULT/locked$BG", 403);
+    MockTransport::mock_response('DELETE', "$CM_DEFAULT/stale$BG", $DELETED);
 
     my ($warnings, $applied) = ensure_only_warnings($kube,
         objects    => [ keep_me_cm($kube) ],
@@ -207,7 +208,7 @@ subtest 'a delete 404 is silent, a failed delete warns and the prune goes on' =>
     like($w, qr/mock refuses with 403/, 'it carries the server message');
     unlike($w, qr/ line \d+\..* line \d+\./s, 'one location, not a second from the caught croak');
 
-    is_deeply(requests('DELETE'), [ map { "$CM_DEFAULT/$_" } qw( gone locked stale ) ],
+    is_deeply(requests('DELETE'), [ map { "$CM_DEFAULT/$_$BG" } qw( gone locked stale ) ],
         'every unexpected item was tried, stale after the failed locked');
     is(scalar @$applied, 1, 'the applied object is returned');
 };

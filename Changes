@@ -146,6 +146,19 @@ Revision history for Net-Async-Kubernetes
    loaded". Every method that takes a resource name now refuses it as
    "resource name must be a string, got a HASH reference", the way it
    reports its other bad arguments.
+ - Add `propagationPolicy` to `delete()`, in every call form
+   (`delete($object, propagationPolicy => 'Background')`, `delete('Job',
+   'nightly', namespace => 'ns', propagationPolicy => 'Foreground')`,
+   `delete('Job', name => 'nightly', ...)`), sent as a query parameter:
+   `Background` and `Foreground` delete what the object owns, `Orphan` keeps
+   it; without it the API server's default applies, which for a Job orphans
+   its Pods. Any other value, and any option `delete` does not know, fails
+   the Future before a request is sent, so a misspelt option no longer goes
+   unnoticed; the object form, which ignored every extra argument, now takes
+   only `propagationPolicy`. `ensure_only` prunes with `Background` unless
+   its new `propagationPolicy` option says otherwise (an unknown value
+   croaks), and `ensure` deletes a failed Job with `Background` before
+   recreating it.
 
 0.008     2026-09-22 04:13:56Z
  - Add public `rest` and `new_object($kind, %fields)` on the client: the

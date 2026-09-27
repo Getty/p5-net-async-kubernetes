@@ -41,6 +41,7 @@ sub calls {
 }
 
 my $JOBS = '/apis/batch/v1/namespaces/default/jobs';
+my $BG   = '?propagationPolicy=Background';
 my $CMS  = '/api/v1/namespaces/default/configmaps';
 
 sub failure {
@@ -86,13 +87,13 @@ subtest 'a failed Job that appeared is deleted and recreated, as on the main pat
         failure(404, 'NotFound'), served(job('late', status => { failed => 1 }), '11'));
     MockTransport::mock_response_queue('POST', $JOBS,
         failure(409, 'AlreadyExists'), served(job('late'), '12'));
-    MockTransport::mock_response('DELETE', "$JOBS/late",
+    MockTransport::mock_response('DELETE', "$JOBS/late$BG",
         { kind => 'Status', apiVersion => 'v1', status => 'Success' });
 
     my $result = eval { $kube->ensure(job('late'))->get };
     is($@, '', 'ensure resolves');
     is_deeply(calls(),
-        [ "GET $JOBS/late", "POST $JOBS", "GET $JOBS/late", "DELETE $JOBS/late", "POST $JOBS" ],
+        [ "GET $JOBS/late", "POST $JOBS", "GET $JOBS/late", "DELETE $JOBS/late$BG", "POST $JOBS" ],
         'deleted and recreated, no PUT');
     is($result && $result->metadata->resourceVersion, '12', 'the recreated Job is returned');
 };

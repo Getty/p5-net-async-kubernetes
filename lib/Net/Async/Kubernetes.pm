@@ -991,10 +991,24 @@ sub delete {
     my $future = $kube->delete($pod_object);
     $future->get;
 
+    # A Job together with its Pods
+    $kube->delete('Job', 'nightly', namespace => 'default',
+        propagationPolicy => 'Background')->get;
+    $kube->delete($job, propagationPolicy => 'Foreground')->get;
+
 Delete a resource. Returns a L<Future> that resolves to C<1> on success.
 In the object form, an object without C<metadata.name>, one that is no
 Kubernetes resource (an L<IO::K8s::List>, a nested C<PodSpec>), or a
 reference that is not an IO::K8s object fails the L<Future>.
+
+C<propagationPolicy> is sent as a query parameter and decides what happens
+to the objects the deleted one owns: C<Background> deletes them after it,
+C<Foreground> before it, C<Orphan> leaves them. Without it the API server
+applies the resource's own default -- for a C<Job> that orphans its Pods.
+Any other value, and any option C<delete> does not know (a misspelt
+C<propagationPolicy> would otherwise be dropped silently), fails the
+L<Future> before a request is sent; the message lists the allowed values or
+options.
 
 Arguments:
 
@@ -1004,21 +1018,39 @@ Arguments:
 
 =item C<$name> - Resource name (required unless passing object)
 
-=item C<%args> - Optional parameters (C<namespace>, etc.)
+=item C<namespace> - Namespace (if namespaced; not in the object form, which
+takes it from the object)
+
+=item C<propagationPolicy> - C<'Background'>, C<'Foreground'> or C<'Orphan'>;
+optional
 
 =back
 
 =cut
 
+# The propagationPolicy values the API server accepts in a DELETE's
+# DeleteOptions.
+my @PROPAGATION_POLICIES = qw( Background Foreground Orphan );
+
+# Nothing when $policy is absent or one of @PROPAGATION_POLICIES, else the
+# message for it, naming $label.
+sub _propagation_policy_error {
+    my ($self, $label, $policy) = @_;
+    return if !defined $policy || grep { $policy eq $_ } @PROPAGATION_POLICIES;
+    return "unknown propagationPolicy '$policy' for $label"
+        . ' (allowed: ' . join(', ', @PROPAGATION_POLICIES) . ')';
+}
+
 # delete() up to the response, unchecked: resolves with the class and the raw
 # Kubernetes::REST::HTTPResponse, or fails before any request on bad
 # arguments - for the same reason as _list_request: ensure_only() treats a
-# 404 (already gone) differently from a failure.
+# 404 (already gone) differently from a failure. An option delete() does not
+# know is a bad argument too: a mistyped propagationPolicy dropped on the
+# floor would leave a Job's Pods orphaned.
 sub _delete_request {
     my ($self, $class_or_object, @rest_args) = @_;
 
-    my $rest = $self->_rest;
-    my ($class, $name, $namespace);
+    my ($class, $name, $namespace, %options, @known);
 
     if (ref($class_or_object)) {
         my $object = $class_or_object;
@@ -1027,12 +1059,16 @@ sub _delete_request {
         my $metadata = $object->metadata or return Future->fail("object must have metadata");
         $name = $metadata->name or return Future->fail("object must have metadata.name");
         $namespace = $metadata->namespace;
+        return Future->fail("Invalid arguments to delete()") if @rest_args % 2;
+        %options = @rest_args;
+        @known = qw( propagationPolicy );
     } else {
         my %args;
         if (@rest_args == 1) {
             $args{name} = $rest_args[0];
-        } elsif (@rest_args >= 2 && $rest_args[0] !~ /^(name|namespace)$/) {
+        } elsif (@rest_args >= 2 && $rest_args[0] !~ /^(name|namespace|propagationPolicy)$/) {
             $args{name} = shift @rest_args;
+            return Future->fail("Invalid arguments to delete()") if @rest_args % 2;
             %args = (%args, @rest_args);
         } elsif (@rest_args % 2 == 0) {
             %args = @rest_args;
@@ -1042,15 +1078,26 @@ sub _delete_request {
 
         ($class, my $error) = $self->_resolve_class($class_or_object);
         return Future->fail($error) unless defined $class;
-        $name = $args{name} or return Future->fail("name required for delete");
-        $namespace = $args{namespace};
+        $name = delete $args{name} or return Future->fail("name required for delete");
+        $namespace = delete $args{namespace};
+        %options = %args;
+        @known = qw( name namespace propagationPolicy );
     }
+
+    my $policy = delete $options{propagationPolicy};
+    if (my @unknown = sort keys %options) {
+        return Future->fail(sprintf('unknown option%s %s for delete (known: %s)',
+            @unknown > 1 ? 's' : '', join(', ', map { "'$_'" } @unknown), join(', ', @known)));
+    }
+    my $policy_error = $self->_propagation_policy_error('delete', $policy);
+    return Future->fail($policy_error) if defined $policy_error;
 
     my ($path, $error) = $self->_request_path($class, $class_or_object,
         name => $name, namespace => $namespace);
     return Future->fail($error) unless defined $path;
-    return $self->_request_unchecked('DELETE', $path)
-        ->then(sub { Future->done($class, @_) });
+    return $self->_request_unchecked('DELETE', $path,
+        defined $policy ? (parameters => { propagationPolicy => $policy }) : (),
+    )->then(sub { Future->done($class, @_) });
 }
 
 # One request through the Kubernetes::REST seam, resolving with the unchecked
@@ -1174,14 +1221,15 @@ sub ensure {
         return Future->done($existing) if $is_pvc;
 
         # A Job's pod template is immutable: a running or succeeded Job stays,
-        # any other is replaced. A failing delete does not stop the create.
-        # The status is read from TO_JSON, not status(): an
-        # IO::K8s::Unstructured Job has no status accessor.
+        # any other is replaced - deleted with its Pods (Background), which
+        # the API server's default for a Job would orphan. A failing delete
+        # does not stop the create. The status is read from TO_JSON, not
+        # status(): an IO::K8s::Unstructured Job has no status accessor.
         if ($is_job) {
             my $status = $existing->TO_JSON->{status} || {};
             return Future->done($existing)
                 if $status->{succeeded} || $status->{active};
-            return Future->call(sub { $self->delete($existing) })
+            return Future->call(sub { $self->delete($existing, propagationPolicy => 'Background') })
                 ->else(sub { Future->done })
                 ->then(sub { $self->create($object) });
         }
@@ -1248,7 +1296,9 @@ deleted and recreated.
 Two kinds get special handling because their spec is immutable after
 creation: an existing core C<v1> C<PersistentVolumeClaim> is left unchanged,
 and an existing C<batch/v1> C<Job> is left unchanged while it is active or has
-succeeded, and deleted and recreated otherwise. Both are recognised by
+succeeded, and deleted and recreated otherwise -- deleted with
+C<propagationPolicy> C<Background>, so its Pods go with it instead of being
+orphaned. Both are recognised by
 apiVersion and Kind together -- the object's C<api_version> and C<kind> --
 never by the class name. A custom resource that reuses one of these Kind
 names in its own group is ensured like any other object, and so is a C<Job>
@@ -1326,6 +1376,11 @@ sub ensure_only {
 
     my $rest       = $self->_rest;
     my $label      = $args{label} or croak "ensure_only requires 'label'";
+    # Background unless told otherwise: the API server's own default leaves
+    # the Pods of a pruned Job behind.
+    my $policy     = $args{propagationPolicy} // 'Background';
+    my $policy_error = $self->_propagation_policy_error('ensure_only', $policy);
+    croak $policy_error if defined $policy_error;
     my @objects    = @{ $args{objects} || [] };
     my @kinds      = @{ $args{kinds} || [] };
     my @namespaces = @{ $args{namespaces} || [undef] };
@@ -1372,7 +1427,9 @@ sub ensure_only {
     };
     my $prune = sub {
         my ($item) = @_;
-        return Future->call(sub { $self->_delete_request($item) })->then(sub {
+        return Future->call(sub {
+            $self->_delete_request($item, propagationPolicy => $policy);
+        })->then(sub {
             my ($class, $response) = @_;
             $rest->check_response($response, "delete $class")
                 unless $response->status == 404;
@@ -1442,7 +1499,8 @@ sub ensure_only {
 Like L</ensure_all>, but also deletes anything matching the label selector in
 the given kinds and namespaces that is not present in C<objects>. Use this
 for resources where stale objects must not survive (e.g. RBAC). Croaks
-synchronously if C<label> is missing.
+synchronously if C<label> is missing, or if C<propagationPolicy> is none of
+the values L</delete> accepts.
 
 Hashrefs in C<objects> are resolved as in L</ensure>, all of them before the
 first request: one without C<kind> or with an C<apiVersion> no class serves
@@ -1462,6 +1520,10 @@ object applied as C<autoscaling/v1> is kept when the listing goes through
 C<autoscaling/v2>. A C<namespaces> entry of C<undef> scans cluster-scoped
 resources; if C<namespaces> is omitted, only cluster-scoped resources are
 scanned.
+
+Stale objects are deleted with C<propagationPolicy> C<Background> unless
+C<propagationPolicy> says otherwise, so a pruned Job or Deployment takes its
+Pods with it; the API server's own default would leave a Job's Pods behind.
 
 Pruning goes on past a failure, and says so. When a C<kinds> entry cannot be
 listed in one namespace -- the API server rejects the request, the request
@@ -1489,6 +1551,9 @@ Arguments:
 
 =item C<namespaces> - ArrayRef of namespaces to scan, C<undef> for
 cluster-scoped; defaults to cluster-scoped only
+
+=item C<propagationPolicy> - How stale objects are deleted: C<'Background'>
+(default), C<'Foreground'> or C<'Orphan'>, as for L</delete>
 
 =back
 

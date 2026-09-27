@@ -193,6 +193,7 @@ subtest 'ensure: failures name the object Kind, not the class-name tail' => sub 
 my $ISTIO_GW = '/apis/networking.istio.io/v1/namespaces/default/gateways';
 my $API_GW   = '/apis/gateway.networking.k8s.io/v1/namespaces/default/gateways';
 my $SEL      = 'app=demo';
+my $BG       = '?propagationPolicy=Background';
 
 sub gateway_item {
     my ($name) = @_;
@@ -219,8 +220,8 @@ subtest 'ensure_only: the same Kind in another API group is another resource' =>
         apiVersion => 'networking.istio.io/v1', kind => 'GatewayList',
         items      => [ gateway_item('web') ],
     });
-    MockTransport::mock_response('DELETE', "$API_GW/web",   $SUCCESS);
-    MockTransport::mock_response('DELETE', "$ISTIO_GW/web", $SUCCESS);
+    MockTransport::mock_response('DELETE', "$API_GW/web$BG",   $SUCCESS);
+    MockTransport::mock_response('DELETE', "$ISTIO_GW/web$BG", $SUCCESS);
 
     my $gateway = $kube->new_object('+My::GatewayApi::Gateway', gateway_item('web'));
     my @applied = eval {
@@ -236,7 +237,7 @@ subtest 'ensure_only: the same Kind in another API group is another resource' =>
     is_deeply(requests('GET'),
         [ "$API_GW/web", "$API_GW?labelSelector=$SEL", "$ISTIO_GW?labelSelector=$SEL" ],
         'both groups were listed');
-    is_deeply(requests('DELETE'), ["$ISTIO_GW/web"],
+    is_deeply(requests('DELETE'), ["$ISTIO_GW/web$BG"],
         'the Istio Gateway web goes; the applied Gateway API Gateway web stays');
 };
 

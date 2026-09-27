@@ -64,6 +64,7 @@ sub make_kube {
 my $V1  = '/apis/autoscaling/v1/namespaces/default/horizontalpodautoscalers';
 my $V2  = '/apis/autoscaling/v2/namespaces/default/horizontalpodautoscalers';
 my $SEL = 'app=web';
+my $BG  = '?propagationPolicy=Background';
 my $NOT_FOUND = { kind => 'Status', status => 'Failure', message => 'not found', code => 404 };
 my $SUCCESS   = { kind => 'Status', status => 'Success' };
 
@@ -145,8 +146,8 @@ subtest 'ensure_only: an apiVersion hashref is applied as v1 and kept in a v2 li
         kind => 'HorizontalPodAutoscalerList', apiVersion => 'autoscaling/v2',
         items => [ hpa('keep'), hpa('stale') ],
     });
-    MockTransport::mock_response('DELETE', "$V2/stale", $SUCCESS);
-    MockTransport::mock_response('DELETE', "$V2/keep",  $SUCCESS);
+    MockTransport::mock_response('DELETE', "$V2/stale$BG", $SUCCESS);
+    MockTransport::mock_response('DELETE', "$V2/keep$BG",  $SUCCESS);
 
     my @applied = eval {
         $kube->ensure_only(
@@ -160,7 +161,7 @@ subtest 'ensure_only: an apiVersion hashref is applied as v1 and kept in a v2 li
     isa_ok($applied[0], 'IO::K8s::Api::Autoscaling::V1::HorizontalPodAutoscaler',
         'applied object');
     is_deeply(requests('POST'), [$V1], 'created on the autoscaling/v1 endpoint');
-    is_deeply(requests('DELETE'), ["$V2/stale"],
+    is_deeply(requests('DELETE'), ["$V2/stale$BG"],
         'only the stale item is deleted, the applied one is recognised');
 };
 
@@ -211,9 +212,9 @@ subtest 'ensure_only: the key is the object kind(), not the class name' => sub {
         kind => 'GadgetList', apiVersion => 'example.com/v1',
         items => [ $item->('Gadget', 'foo') ],
     });
-    MockTransport::mock_response('DELETE', "$WIDGETS/stale", $SUCCESS);
-    MockTransport::mock_response('DELETE', "$WIDGETS/foo",   $SUCCESS);
-    MockTransport::mock_response('DELETE', "$GADGETS/foo",   $SUCCESS);
+    MockTransport::mock_response('DELETE', "$WIDGETS/stale$BG", $SUCCESS);
+    MockTransport::mock_response('DELETE', "$WIDGETS/foo$BG",   $SUCCESS);
+    MockTransport::mock_response('DELETE', "$GADGETS/foo$BG",   $SUCCESS);
 
     eval {
         $kube->ensure_only(
@@ -224,7 +225,7 @@ subtest 'ensure_only: the key is the object kind(), not the class name' => sub {
         )->get;
     };
     is($@, '', 'ensure_only resolves');
-    is_deeply([ sort @{ requests('DELETE') } ], [ "$GADGETS/foo", "$WIDGETS/stale" ],
+    is_deeply([ sort @{ requests('DELETE') } ], [ "$GADGETS/foo$BG", "$WIDGETS/stale$BG" ],
         'the applied Widget foo stays; the stale Widget and the same-named Gadget go');
 };
 

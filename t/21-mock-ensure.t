@@ -347,7 +347,7 @@ subtest 'ensure: failed Job is deleted and recreated' => sub {
         metadata => { name => 'job1', namespace => 'default', resourceVersion => '2' },
         spec => $job_spec, status => { failed => 1 },
     });
-    MockTransport::mock_response('DELETE', '/apis/batch/v1/namespaces/default/jobs/job1',
+    MockTransport::mock_response('DELETE', '/apis/batch/v1/namespaces/default/jobs/job1?propagationPolicy=Background',
         { kind => 'Status', status => 'Success' });
     MockTransport::mock_response('POST', '/apis/batch/v1/namespaces/default/jobs', {
         kind => 'Job', apiVersion => 'batch/v1',
@@ -361,7 +361,7 @@ subtest 'ensure: failed Job is deleted and recreated' => sub {
     is($result->metadata->resourceVersion, '10', 'result is the newly created Job');
     is_deeply(request_sequence(),
         [ 'GET /apis/batch/v1/namespaces/default/jobs/job1',
-          'DELETE /apis/batch/v1/namespaces/default/jobs/job1',
+          'DELETE /apis/batch/v1/namespaces/default/jobs/job1?propagationPolicy=Background',
           'POST /apis/batch/v1/namespaces/default/jobs' ],
         'GET(failed), DELETE, POST');
 };
@@ -376,7 +376,7 @@ subtest 'ensure: a failing DELETE on a failed Job is ignored, POST still happens
         metadata => { name => 'job1', namespace => 'default', resourceVersion => '2' },
         spec => $job_spec, status => { failed => 1 },
     });
-    MockTransport::mock_response('DELETE', '/apis/batch/v1/namespaces/default/jobs/job1',
+    MockTransport::mock_response('DELETE', '/apis/batch/v1/namespaces/default/jobs/job1?propagationPolicy=Background',
         { kind => 'Status', status => 'Failure', message => 'server error', code => 500 }, 500);
     MockTransport::mock_response('POST', '/apis/batch/v1/namespaces/default/jobs', {
         kind => 'Job', apiVersion => 'batch/v1',
@@ -390,7 +390,7 @@ subtest 'ensure: a failing DELETE on a failed Job is ignored, POST still happens
     is($result->metadata->resourceVersion, '10', 'ensure still succeeds despite the failed delete');
     is_deeply(request_sequence(),
         [ 'GET /apis/batch/v1/namespaces/default/jobs/job1',
-          'DELETE /apis/batch/v1/namespaces/default/jobs/job1',
+          'DELETE /apis/batch/v1/namespaces/default/jobs/job1?propagationPolicy=Background',
           'POST /apis/batch/v1/namespaces/default/jobs' ],
         'DELETE is attempted and its failure is ignored -- POST still happens');
 };
@@ -604,7 +604,7 @@ subtest 'ensure_only: ensures objects, then deletes unlisted items matching the 
               metadata => { name => 'stale-cm', namespace => 'default' }, data => {} },
         ],
     });
-    MockTransport::mock_response('DELETE', '/api/v1/namespaces/default/configmaps/stale-cm',
+    MockTransport::mock_response('DELETE', '/api/v1/namespaces/default/configmaps/stale-cm?propagationPolicy=Background',
         { kind => 'Status', status => 'Success' });
 
     my $f = future_or_bail('ensure_only', sub {
@@ -623,7 +623,7 @@ subtest 'ensure_only: ensures objects, then deletes unlisted items matching the 
 
     my @deletes = grep { $_->{method} eq 'DELETE' } MockTransport::request_log;
     is(scalar(@deletes), 1, 'exactly one delete');
-    is($deletes[0]{path}, '/api/v1/namespaces/default/configmaps/stale-cm',
+    is($deletes[0]{path}, '/api/v1/namespaces/default/configmaps/stale-cm?propagationPolicy=Background',
         'the unlisted item is deleted, the expected one is left alone');
 };
 
@@ -695,7 +695,7 @@ subtest 'ensure_only: a failing list for one namespace does not stop the others;
         ],
     });
     MockTransport::mock_response('DELETE',
-        '/api/v1/namespaces/kube-system/configmaps/stale-cm',
+        '/api/v1/namespaces/kube-system/configmaps/stale-cm?propagationPolicy=Background',
         { kind => 'Status', status => 'Failure', message => 'server error', code => 500 }, 500);
 
     # Both failures are reported (t/33-mock-ensure-only-warnings.t has the
@@ -716,7 +716,7 @@ subtest 'ensure_only: a failing list for one namespace does not stop the others;
 
     my @deletes = grep { $_->{method} eq 'DELETE' } MockTransport::request_log;
     is(scalar(@deletes), 1, 'the delete for the reachable namespace was still attempted');
-    is($deletes[0]{path}, '/api/v1/namespaces/kube-system/configmaps/stale-cm',
+    is($deletes[0]{path}, '/api/v1/namespaces/kube-system/configmaps/stale-cm?propagationPolicy=Background',
         'delete targeted the item from the namespace whose list succeeded');
 };
 
