@@ -1,0 +1,19 @@
+---
+claimed_at: 2026-09-27T21:22:18Z
+claimed_by: backlog-5
+class: standard
+completed: 2026-09-27T21:22:13Z
+created: 2026-09-27T03:20:22Z
+id: 53
+priority: low
+started: 2026-09-27T20:35:31Z
+status: done
+tags:
+- test
+title: MockTransport liefert Watch-Events auch bei Status 403
+updated: 2026-09-27T21:22:18Z
+---
+
+Die Mock-Harness stellt registrierte Watch-Events auch bei status 403 zu; der echte Transport streamt einen Fehler-Body seit k33 nicht mehr. Harness an den echten Vertrag angleichen.
+
+Commit 086096e
