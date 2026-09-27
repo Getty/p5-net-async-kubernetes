@@ -84,9 +84,15 @@ the resource:
 - `_resolve_class($name)` — `$rest->expand_class` fails closed for a qualified name
   (`undef`) but open for a bare Kind (a fabricated `IO::K8s::<Kind>`); both, and a
   fabricated name that does not load, are "unknown resource '…'". A reference in
-  place of the name (a manifest hashref handed to `patch`) never reaches
-  `expand_class`: "resource name must be a string, got a HASH reference" (a blessed
-  one: "got an object of class …"). Everything else goes to `_usable_class`.
+  the class-name position (a manifest hashref handed to `patch`) never reaches
+  `expand_class`: `_resource_name_error` refuses it with "resource name must be a
+  string, got a HASH reference" (a blessed one: "got an object of class …").
+  Everything else goes to `_usable_class`. `get` and `delete` (class form) call
+  the same helper on their object-name positional too — `get('Pod', $ref)`,
+  `delete('Pod', {name=>'web'})` would otherwise stringify it into the path and
+  fail only as the server's 404 (k70, t/37); the `_named_args` methods (`log`, the
+  duplex methods, `patch`'s class form) already refuse a reference there as
+  `Invalid arguments to METHOD()` via their `!ref` positional test.
 - `_usable_class($name, $class)` — the class must load (else its load error) and
   answer `api_version` as a class method (else "not a Kubernetes resource class" — a
   bare `List`, `Resource`, `Types`, `Unstructured`). `IO::K8s::Unstructured` passes

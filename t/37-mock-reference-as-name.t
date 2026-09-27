@@ -92,6 +92,56 @@ subtest 'every method that takes a resource name says the same' => sub {
     is_deeply([ MockTransport::request_log ], [], 'no request was sent');
 };
 
+subtest 'get and delete refuse a reference in the name position' => sub {
+    my $kube = make_kube();
+    # 'Pod' is a real class here - the reference is the name, not the class,
+    # the gap the class-position check above never reached (karr k70). Left
+    # unchecked, get() and delete() stringified it straight into the request
+    # path (GET /api/v1/pods/HASH(0x...)) and only the server's 404 showed it.
+    my $object = $kube->new_object(Pod =>
+        { metadata => { name => 'web', namespace => 'ns' } });
+
+    for my $case (
+        [ HASH   => $manifest, 'a HASH reference' ],
+        [ object => $object,   'an object of class IO::K8s::Api::Core::V1::Pod' ],
+    ) {
+        my ($type, $ref, $tail) = @$case;
+        my $message = "resource name must be a string, got $tail";
+        for my $call (
+            [ 'get bare'           => sub { $kube->get('Pod', $ref) } ],
+            [ 'get + namespace'    => sub { $kube->get('Pod', $ref, namespace => 'ns') } ],
+            [ 'delete bare'        => sub { $kube->delete('Pod', $ref) } ],
+            [ 'delete + namespace' => sub { $kube->delete('Pod', $ref, namespace => 'ns') } ],
+        ) {
+            my ($label, $code) = @$call;
+            my $f = eval { $code->() };
+            is($@, '', "$label ($type) does not croak");
+            my $error = failure_of($f) // '';
+            is($error, $message, "$label ($type) fails the Future with the argument error");
+            unlike($error, qr/HASH\(0x|=HASH\(0x/,
+                "$label ($type) leaks no stringified reference");
+        }
+    }
+    is_deeply([ MockTransport::request_log ], [], 'no request was sent');
+};
+
+subtest 'get and delete still accept a string name' => sub {
+    my $kube = make_kube();
+    my $pod = { apiVersion => 'v1', kind => 'Pod',
+        metadata => { name => 'web', namespace => 'ns' } };
+    MockTransport::mock_response('GET', '/api/v1/namespaces/ns/pods/web', $pod);
+    MockTransport::mock_response('DELETE', '/api/v1/namespaces/ns/pods/web',
+        { kind => 'Status', status => 'Success' });
+
+    my $got = eval { $kube->get('Pod', 'web', namespace => 'ns')->get };
+    is($@, '', 'get by string name works');
+    isa_ok($got, 'IO::K8s::Api::Core::V1::Pod', 'the fetched object');
+
+    my $deleted = eval { $kube->delete('Pod', 'web', namespace => 'ns')->get };
+    is($@, '', 'delete by string name works');
+    is($deleted, 1, 'delete by string name resolves to 1');
+};
+
 subtest 'a name and an object still work' => sub {
     my $kube = make_kube();
     my $cm = { %$manifest, data => { k => 'v' } };

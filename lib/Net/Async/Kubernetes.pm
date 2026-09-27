@@ -338,6 +338,22 @@ sub _unknown_resource_error {
     );
 }
 
+# The message for a reference where a resource name - a plain string - is
+# required, and nothing for a string. A reference reaches a name position two
+# ways: as the class-name argument (a manifest hashref handed to patch(),
+# caught by _resolve_class below), or as the object-name argument of get() and
+# delete() (a manifest hashref or an IO::K8s object, karr k70). Left unchecked
+# either one stringifies into the request path (.../pods/HASH(0x...)) and only
+# the server's 404 shows the error. One wording for both positions, so a
+# reference is refused the same way wherever it lands.
+sub _resource_name_error {
+    my ($self, $name) = @_;
+    return unless ref $name;
+    return 'resource name must be a string, got '
+        . (blessed($name) ? 'an object of class ' . ref($name)
+                          : 'a ' . ref($name) . ' reference');
+}
+
 # Resolve a resource name to its IO::K8s class. Returns the class, or
 # (undef, $message) when no usable class comes out of the name, which every
 # caller reports per its contract - a failed Future or a croak. Kubernetes::REST's
@@ -345,14 +361,14 @@ sub _unknown_resource_error {
 # Kind: it fabricates 'IO::K8s::<Kind>' whether or not that class exists. Both
 # are an unknown resource; whatever else can go wrong with the class it did
 # resolve to is _usable_class's to report. A reference is no name at all -
-# say a manifest hashref handed to patch() - and is refused as such:
-# expand_class would stringify it into a class name ('IO::K8s::HASH(0x...)')
-# and the load error would name that instead.
+# say a manifest hashref handed to patch() - and is refused as such
+# (_resource_name_error): expand_class would stringify it into a class name
+# ('IO::K8s::HASH(0x...)') and the load error would name that instead.
 sub _resolve_class {
     my ($self, $name, @args) = @_;
-    return (undef, 'resource name must be a string, got '
-        . (blessed($name) ? 'an object of class ' . ref($name) : 'a ' . ref($name) . ' reference'))
-        if ref $name;
+    if (my $error = $self->_resource_name_error($name)) {
+        return (undef, $error);
+    }
     my $class = $self->_rest->expand_class($name, @args)
         // return (undef, $self->_unknown_resource_error($name));
     return $self->_usable_class($name, $class);
@@ -735,6 +751,12 @@ sub get {
     my $unknown = $self->_unknown_argument_error('get', \%args, qw( name namespace ));
     return Future->fail($unknown) if defined $unknown;
 
+    # A reference in the name position (a manifest hashref, an IO::K8s object)
+    # would otherwise be stringified straight into the path (k70).
+    if (my $name_error = $self->_resource_name_error($args{name})) {
+        return Future->fail($name_error);
+    }
+
     my ($class, $error) = $self->_resolve_class($short_class);
     return Future->fail($error) unless defined $class;
     return Future->fail("name required for get") unless $args{name};
@@ -757,7 +779,9 @@ sub get {
 Get a single resource by name. Returns a L<Future> that resolves to an
 inflated IO::K8s object. An option other than C<name> and C<namespace> fails
 the L<Future> before a request is sent, and so does an odd list of options,
-as C<Invalid arguments to get()>.
+as C<Invalid arguments to get()>. A reference in place of the name -- a
+manifest hashref, an IO::K8s object -- fails it as C<resource name must be a
+string, got a HASH reference>, before it is stringified into the request path.
 
 Arguments:
 
@@ -1125,7 +1149,10 @@ sub delete {
 Delete a resource. Returns a L<Future> that resolves to C<1> on success.
 In the object form, an object without C<metadata.name>, one that is no
 Kubernetes resource (an L<IO::K8s::List>, a nested C<PodSpec>), or a
-reference that is not an IO::K8s object fails the L<Future>.
+reference that is not an IO::K8s object fails the L<Future>. In the class
+form, a reference in place of the name -- C<delete('Pod', $manifest)> --
+fails it as C<resource name must be a string, got a HASH reference>, before
+it is stringified into the request path.
 
 C<propagationPolicy> is sent as a query parameter and decides what happens
 to the objects the deleted one owns: C<Background> deletes them after it,
@@ -1262,6 +1289,13 @@ sub _delete_request {
     return Future->fail($unknown) if defined $unknown;
     my $policy_error = $self->_propagation_policy_error('delete', $policy);
     return Future->fail($policy_error) if defined $policy_error;
+
+    # A reference in the name position of the class form (delete('Pod',
+    # {name => 'web'})) would otherwise be stringified straight into the path
+    # (k70); the object form's name comes from metadata and is always a string.
+    if (my $name_error = $self->_resource_name_error($name)) {
+        return Future->fail($name_error);
+    }
 
     my ($path, $error) = $self->_request_path($class, $class_or_object,
         name => $name, namespace => $namespace);

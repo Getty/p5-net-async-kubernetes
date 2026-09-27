@@ -238,6 +238,17 @@ Revision history for Net-Async-Kubernetes
    `ensure_only`, `watcher`, `controller` and `watch_resource` croak, the
    others fail their Future. A lone argument after the Kind is still the
    name in `get`, even one spelled like an option.
+ - Refuse a reference in the name position of `get()` and `delete()`.
+   `get('Pod', $obj)` and `delete('Pod', {name => 'web'})` took the reference
+   as the resource name and stringified it straight into the request path
+   (`GET /api/v1/pods/IO::K8s::...=HASH(0x...)`), so the mistake surfaced only
+   as the server's 404. Both now fail the Future before any request with
+   `resource name must be a string, got a HASH reference` (a blessed object:
+   `got an object of class ...`), the same wording already used for a
+   reference in the class-name position (`patch($manifest, ...)`); the other
+   name-taking methods (`log`, `patch`, the duplex methods) already rejected
+   such input before a request. A string name, the object forms, and every
+   other call are unchanged.
 
 0.008     2026-09-22 04:13:56Z
  - Add public `rest` and `new_object($kind, %fields)` on the client: the
