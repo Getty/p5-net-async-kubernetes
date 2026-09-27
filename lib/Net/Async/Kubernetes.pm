@@ -802,14 +802,34 @@ sub _request_unchecked {
     return $self->_do_request($self->_rest->prepare_request($method, $path, %opts));
 }
 
+# Shared hashref handling for ensure() and ensure_only(): turns a manifest into
+# a typed object. A manifest's apiVersion is authoritative - with one, the
+# class is resolved as that exact group/version/Kind, and an apiVersion no
+# class serves croaks instead of falling back to the version the bare Kind
+# happens to map to (HorizontalPodAutoscaler alone means autoscaling/v2, a
+# different endpoint and schema than an autoscaling/v1 manifest). Without an
+# apiVersion the bare Kind resolves as it always did. $label only appears in
+# croak messages.
+sub _manifest_to_object {
+    my ($self, $label, $manifest) = @_;
+    my $kind = $manifest->{kind} or croak "$label: hashref must have 'kind'";
+    my $api_version = $manifest->{apiVersion};
+    my $rest = $self->_rest;
+
+    return $rest->k8s->struct_to_object($self->expand_class($kind), $manifest)
+        unless defined $api_version && length $api_version;
+
+    my $class = $rest->expand_class($kind, $api_version)
+        // croak "$label: no IO::K8s class for apiVersion '$api_version', kind '$kind'"
+            . " (add it to resource_map if it is a CRD)";
+    return $rest->k8s->struct_to_object($class, $manifest);
+}
+
 sub ensure {
     my ($self, $object) = @_;
 
     my $rest = $self->_rest;
-    if (ref($object) eq 'HASH') {
-        my $kind = $object->{kind} or croak "ensure: hashref must have 'kind'";
-        $object = $rest->k8s->struct_to_object($self->expand_class($kind), $object);
-    }
+    $object = $self->_manifest_to_object('ensure', $object) if ref($object) eq 'HASH';
     croak "ensure requires an IO::K8s object or hashref" unless blessed($object);
 
     my $class = ref($object);
@@ -913,6 +933,12 @@ Accepts a typed IO::K8s object or a plain hashref; a hashref must carry a
 C<kind> field and uses manifest-style camelCase keys (C<stringData>, not
 C<string_data>).
 
+A hashref's C<apiVersion>, when present, selects the class: an
+C<autoscaling/v1> HorizontalPodAutoscaler stays C<autoscaling/v1> and goes to
+that endpoint, although the bare Kind resolves to C<autoscaling/v2>. A hashref
+without C<apiVersion> (or with an empty one) resolves by its Kind alone, as
+L</expand_class> does.
+
 Handles the create/update race: a 409 on update (something else changed the
 object between GET and PUT) refetches once and retries the update; a 409 on
 create (something else created it between GET and POST) refetches and
@@ -925,9 +951,10 @@ deleted and recreated otherwise.
 
 Errors that are known before any request is made -- a hashref without
 C<kind>, a value that is neither an object nor a hashref, an object missing
-C<metadata>/C<metadata.name>, or an unknown C<kind> -- croak synchronously,
-as with L</update>. Anything that goes wrong during the request flow itself
-fails the Future instead.
+C<metadata>/C<metadata.name>, an unknown C<kind>, or an C<apiVersion> that
+resolves to no known class (the message names both the Kind and the
+C<apiVersion>) -- croak synchronously, as with L</update>. Anything that
+goes wrong during the request flow itself fails the Future instead.
 
 Arguments:
 
@@ -994,19 +1021,24 @@ sub ensure_only {
     my @kinds      = @{ $args{kinds} || [] };
     my @namespaces = @{ $args{namespaces} || [undef] };
 
-    my $rest = $self->_rest;
+    # Every hashref is resolved before the first request, so one that cannot
+    # be (no kind, an apiVersion no class serves) stops the whole call.
     for my $object (@objects) {
-        next unless ref($object) eq 'HASH';
-        my $kind = $object->{kind} or croak "ensure_only: hashref must have 'kind'";
-        $object = $rest->k8s->struct_to_object($self->expand_class($kind), $object);
+        $object = $self->_manifest_to_object('ensure_only', $object)
+            if ref($object) eq 'HASH';
     }
 
-    # (Kind, namespace, name). The Kind comes from the object's class on both
-    # sides, so a qualified 'group/version/Kind' in kinds still recognises
-    # the objects it lists instead of deleting them.
+    # (Kind, namespace, name), taken from the object on both sides - never
+    # from the kinds entry, which may be qualified ('autoscaling/v1/...') and
+    # would then match nothing, deleting the objects just applied. The Kind is
+    # the object's own kind(): class-derived for a typed object, instance data
+    # for IO::K8s::Unstructured, whose class name says nothing about its Kind.
+    # No version in the key: the same resource listed through another
+    # version's class is still the same resource.
     my $key_of = sub {
         my ($object) = @_;
-        (my $kind = ref $object) =~ s/.*:://;
+        my $kind = $object->can('kind') ? $object->kind : undef;
+        ($kind = ref $object) =~ s/.*::// unless defined $kind;
         my $metadata = $object->metadata;
         return join("\0", $kind, $metadata->namespace // '', $metadata->name);
     };
@@ -1064,15 +1096,21 @@ the given kinds and namespaces that is not present in C<objects>. Use this
 for resources where stale objects must not survive (e.g. RBAC). Croaks
 synchronously if C<label> is missing.
 
+Hashrefs in C<objects> are resolved as in L</ensure>, all of them before the
+first request: one without C<kind> or with an C<apiVersion> no class serves
+croaks, and nothing is applied or deleted.
+
 Applies C<objects> via L</ensure_all>, then for each kind in C<kinds> and
 each namespace in C<namespaces>, lists resources of that kind carrying the
 label and deletes any that do not match one of the just-applied objects by
-kind, namespace and name -- so a qualified C<'group/version/Kind'> entry in
-C<kinds> still recognises the objects it lists rather than deleting them. A
-C<namespaces> entry of C<undef> scans cluster-scoped resources; if
-C<namespaces> is omitted, only cluster-scoped resources are scanned. A list
-or delete request that fails is skipped or ignored, as in the synchronous
-client.
+Kind, namespace and name. The Kind is each object's own C<kind>, so a
+qualified C<'group/version/Kind'> entry in C<kinds> still recognises the
+objects it lists rather than deleting them. The version is not compared: an
+object applied as C<autoscaling/v1> is kept when the listing goes through
+C<autoscaling/v2>. A C<namespaces> entry of C<undef> scans cluster-scoped
+resources; if C<namespaces> is omitted, only cluster-scoped resources are
+scanned. A list or delete request that fails is skipped or ignored, as in the
+synchronous client.
 
 Returns a L<Future> that resolves to the list of applied objects (from
 L</ensure_all>).
