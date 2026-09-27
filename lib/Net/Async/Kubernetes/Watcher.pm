@@ -350,6 +350,8 @@ sub _start_watch {
         if defined $self->field_selector;
 
     my $req = $rest->prepare_request('GET', $path, parameters => \%params);
+    # The resolved class, handed over exactly (see the client's _exact_class).
+    my $exact_class = $self->kube->_exact_class($class);
 
     weaken(my $weak_self = $self);
 
@@ -362,7 +364,7 @@ sub _start_watch {
         $weak_self->{_failures} = 0;
 
         my $buffer = $weak_self->{_buffer};
-        for my $result ($rest->process_watch_chunk($class, \$buffer, $chunk)) {
+        for my $result ($rest->process_watch_chunk($exact_class, \$buffer, $chunk)) {
             $weak_self->{_buffer} = $buffer;
 
             if ($result->{resourceVersion}) {

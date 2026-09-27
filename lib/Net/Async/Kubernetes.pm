@@ -380,6 +380,24 @@ sub _unstructured_hint {
     );
 }
 
+# The name to hand Kubernetes::REST's inflate_object, inflate_list and
+# process_watch_chunk for $class. Up to 1.108 they resolve a name again, and
+# a single-segment class of the caller's own ('+Gizmo' in the resource_map,
+# which expand_class returns as 'Gizmo') reads to them as the Kind Gizmo:
+# IO::K8s::Gizmo, or whatever class the map gives that Kind - a list item
+# inflated that way belongs to another group, and ensure_only prunes it
+# there. A loaded IO::K8s resource class therefore goes over as '+Class',
+# which is taken exactly; anything else is left as it is. Mirrors the private
+# helper of the same name in Kubernetes::REST 1.109, which is not part of its
+# public seam.
+sub _exact_class {
+    my ($self, $class) = @_;
+    return '+' . $class
+        if defined $class && !ref $class && length $class && $class !~ /\A\+/
+            && $class->can('does') && $class->does('IO::K8s::Role::Resource');
+    return $class;
+}
+
 sub expand_class {
     my ($self, @args) = @_;
     my ($class, $error) = $self->_resolve_class(@args);
@@ -412,7 +430,9 @@ The result is a plain class name, without a C<+>. Handed back to a method
 that resolves names again -- L</new_object>, L<IO::K8s/struct_to_object> --
 a single-segment class of your own (C<'+Gizmo'> in the L</resource_map>,
 returned as C<'Gizmo'>) reads as the Kind C<Gizmo> there. Prefix it with
-C<+> when you do that yourself; L</ensure> already does.
+C<+> when you do that yourself. The client's own methods already do, for the
+manifests L</ensure> resolves and for every answer they inflate, a watch
+event included -- whichever L<Kubernetes::REST> version is installed.
 
 Croaks when the name cannot be resolved to an IO::K8s class -- a qualified
 name no class serves, and equally a bare Kind no class ships for (C<'Bogus'>),
@@ -445,7 +465,7 @@ sub list {
     return $self->_list_request($short_class, %args)->then(sub {
         my ($class, $response) = @_;
         $rest->check_response($response, "list $short_class");
-        return Future->done($rest->inflate_list($class, $response));
+        return Future->done($rest->inflate_list($self->_exact_class($class), $response));
     });
 }
 
@@ -533,7 +553,7 @@ sub get {
     return $self->_do_request($req)->then(sub {
         my ($response) = @_;
         $rest->check_response($response, "get $short_class");
-        return Future->done($rest->inflate_object($class, $response));
+        return Future->done($rest->inflate_object($self->_exact_class($class), $response));
     });
 }
 
@@ -577,7 +597,7 @@ sub create {
     return $self->_do_request($req)->then(sub {
         my ($response) = @_;
         $rest->check_response($response, "create " . ref($object));
-        return Future->done($rest->inflate_object($class, $response));
+        return Future->done($rest->inflate_object($self->_exact_class($class), $response));
     });
 }
 
@@ -620,7 +640,7 @@ sub update {
     return $self->_do_request($req)->then(sub {
         my ($response) = @_;
         $rest->check_response($response, "update " . ref($object));
-        return Future->done($rest->inflate_object($class, $response));
+        return Future->done($rest->inflate_object($self->_exact_class($class), $response));
     });
 }
 
@@ -668,7 +688,7 @@ sub update_status {
     return $self->_do_request($req)->then(sub {
         my ($response) = @_;
         $rest->check_response($response, "update_status $class");
-        return Future->done($rest->inflate_object($class, $response));
+        return Future->done($rest->inflate_object($self->_exact_class($class), $response));
     });
 }
 
@@ -767,7 +787,7 @@ sub patch {
     return $self->_do_request($req)->then(sub {
         my ($response) = @_;
         $rest->check_response($response, "patch $class");
-        return Future->done($rest->inflate_object($class, $response));
+        return Future->done($rest->inflate_object($self->_exact_class($class), $response));
     });
 }
 
@@ -828,7 +848,7 @@ sub patch_status {
     return $self->_do_request($req)->then(sub {
         my ($response) = @_;
         $rest->check_response($response, "patch_status $class");
-        return Future->done($rest->inflate_object($class, $response));
+        return Future->done($rest->inflate_object($self->_exact_class($class), $response));
     });
 }
 
@@ -1052,7 +1072,7 @@ sub ensure {
         return $self->_request_unchecked('GET', $path)->then(sub {
             my ($response) = @_;
             $rest->check_response($response, "$context $kind/$name");
-            return Future->done($rest->inflate_object($class, $response));
+            return Future->done($rest->inflate_object($self->_exact_class($class), $response));
         });
     };
 
@@ -1071,7 +1091,7 @@ sub ensure {
                 });
             }
             $rest->check_response($response, "update $class");
-            return Future->done($rest->inflate_object($class, $response));
+            return Future->done($rest->inflate_object($self->_exact_class($class), $response));
         });
     };
 
@@ -1109,7 +1129,7 @@ sub ensure {
             return $fetch->('ensure post-409 get')->then($apply_to_existing)
                 if $response->status == 409;
             $rest->check_response($response, "create $class");
-            return Future->done($rest->inflate_object($class, $response));
+            return Future->done($rest->inflate_object($self->_exact_class($class), $response));
         });
     };
 
@@ -1117,7 +1137,7 @@ sub ensure {
         my ($response) = @_;
         return $create->() if $response->status == 404;
         $rest->check_response($response, "ensure get $kind/$name");
-        return $apply_to_existing->($rest->inflate_object($class, $response));
+        return $apply_to_existing->($rest->inflate_object($self->_exact_class($class), $response));
     });
 }
 
@@ -1316,7 +1336,7 @@ sub ensure_only {
                         my ($class, $response) = @_;
                         return Future->done if $response->status == 404;
                         $rest->check_response($response, "list $kind");
-                        return Future->done($rest->inflate_list($class, $response));
+                        return Future->done($rest->inflate_list($self->_exact_class($class), $response));
                     })->else(sub {
                         my ($error) = @_;
                         carp "ensure_only: cannot list $kind " . $where->($namespace)

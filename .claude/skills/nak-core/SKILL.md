@@ -56,7 +56,8 @@ my ($class, $error) = $self->_resolve_class($name);        # or _object_class($l
 $rest->build_path($class, name=>, namespace=>, $self->_unstructured_hint($class, $name_or_obj))
   → $rest->prepare_request(METHOD, $path, body=>, parameters=>, headers=>)
   → $self->_do_request($req)
-  → ->then { $rest->check_response($res, "op class"); $rest->inflate_object/inflate_list }
+  → ->then { $rest->check_response($res, "op class");
+              $rest->inflate_object/inflate_list($self->_exact_class($class), $res) }
 ```
 
 Use only the public building blocks: `expand_class`, `build_path`, `prepare_request`,
@@ -64,7 +65,7 @@ Use only the public building blocks: `expand_class`, `build_path`, `prepare_requ
 Future), `inflate_object`, `inflate_list`, `process_watch_chunk`, `process_log_chunk`,
 plus the documented `io` attribute. Never call `_`-prefixed Kubernetes::REST internals;
 where the client needs one's behaviour it keeps a private mirror of its own
-(`_unstructured_hint`, `_api_version_and_kind`).
+(`_unstructured_hint`, `_api_version_and_kind`, `_exact_class`).
 
 ### Class resolution and the error convention
 
@@ -324,7 +325,10 @@ or a live one from the kubeconfig; both added to the process-wide memoized `loop
 - Kubernetes::REST 1.108's `inflate_object`/`inflate_list`/`process_watch_chunk`
   resolve the class name again: a single-segment class (`'+Gizmo'` → `Gizmo`) is read
   as a Kind — dies, drops list items, or inflates as whatever the map's short key
-  `Gizmo` names. Fixed in 1.109 (its k42); until the pin moves, the client's own
-  `'+'.$class` hand-off covers only `_manifest_to_object`.
+  `Gizmo` names (and `ensure_only` then prunes in that group). Fixed in 1.109 (its
+  k42); the client does not rely on it: every inflate call site, the Watcher's
+  `process_watch_chunk` included, passes `_exact_class($class)` (`'+Class'` for a
+  loaded class doing `IO::K8s::Role::Resource`, the rule of REST 1.109's private
+  helper). A new inflate call site must do the same.
 - POD style is inline `=method`/`=attr` next to the sub (`Kubernetes.pm`,
   `Watcher.pm`); `Controller.pm` keeps its POD in `__END__` — match per-file.

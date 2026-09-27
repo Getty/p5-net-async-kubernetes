@@ -110,6 +110,16 @@ Revision history for Net-Async-Kubernetes
    group and version) or from the `IO::K8s::Unstructured` object. `ensure`
    and `ensure_only` apply their Job, PersistentVolumeClaim and prune rules
    to such objects by their `kind` and `apiVersion`.
+ - Fix answers inflating as the wrong class when a resource resolves to a
+   single-segment class of your own (`'+Gizmo'` in the resource_map). With
+   `Kubernetes::REST` 1.108, `list`, `get`, `create`, `update`,
+   `update_status`, `patch`, `patch_status`, `ensure`, `ensure_only` and the
+   watcher handed the resolved name `Gizmo` back to it, which read it as the
+   Kind `Gizmo`: the answer died, list items were dropped, or everything
+   inflated as whatever class the resource map gives that Kind - and
+   `ensure_only` took its own objects for strangers and deleted them in that
+   other group. The client now hands over the resolved class exactly,
+   whichever Kubernetes::REST version is installed.
 
 0.008     2026-09-22 04:13:56Z
  - Add public `rest` and `new_object($kind, %fields)` on the client: the
