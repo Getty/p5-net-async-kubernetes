@@ -1,0 +1,20 @@
+---
+claimed_at: 2026-09-27T22:35:52Z
+claimed_by: backlog-8
+class: standard
+completed: 2026-09-27T22:35:48Z
+created: 2026-09-27T22:08:25Z
+id: 69
+priority: medium
+started: 2026-09-27T22:17:34Z
+status: done
+tags:
+- args
+title: 'get, patch, patch_status: ungerade Argumentliste wird nur gewarnt und trotzdem
+  gesendet'
+updated: 2026-09-27T22:35:52Z
+---
+
+Gefunden bei k68 (2026-09-28), nachgestellt. get('Pod','web', namespace => 'default', 'namespace') geht als GET /api/v1/pods/web ohne Namespace raus (nur Warnung Odd number). Bei patch/patch_status (_patch_args) gilt dasselbe für die Objektform und die Klassenform mit positionalem Namen; der Default-Patch-Typ wird genutzt. Wie _delete_request und seit k68 Controller::patch_status mit Invalid arguments to X() als failed Future ablehnen; _named_args aus k67 prüfen.
+
+Commit 3f0e220
