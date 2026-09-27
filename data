@@ -1,0 +1,24 @@
+---
+claimed_at: 2026-09-27T00:51:31Z
+claimed_by: nak-followups
+class: standard
+completed: 2026-09-27T00:39:50Z
+created: 2026-09-26T22:18:13Z
+id: 40
+priority: medium
+started: 2026-09-27T00:04:30Z
+status: done
+tags:
+- api
+- future
+title: Unbekannte bare Kind stirbt synchron statt als failed Future
+updated: 2026-09-27T00:51:31Z
+---
+
+patch mit Kind Bogus (ebenso list, get, delete) stirbt synchron in build_path bzw. require_module statt ein fehlgeschlagenes Future zu liefern. Vorbestehend, laut Differential-Check aus k34 unverändert. t/17 deckt nur qualifizierte Namen ab. Done: bare unbekannte Kind liefert überall ein failed Future mit der Meldung aus _unknown_resource_error, Test dazu.
+
+Umgesetzt auf feat/status-ensure, uncommittet. prove -lr t/ Mock-Modus 28 Dateien 231 Tests PASS, dzil build sauber.
+
+2026-09-27 00:39 Committed as 9c5c100: Fail a bare unknown Kind like a qualified one instead of dying in require. Verified in an isolated worktree, prove -lr t/ mock mode 27 files 223 tests PASS.
+
+2026-09-27 00:51 Commit neu geschnitten mit Changes-Eintrag, neuer Hash 1490a4b.
