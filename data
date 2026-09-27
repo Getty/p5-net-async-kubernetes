@@ -1,0 +1,20 @@
+---
+claimed_at: 2026-09-27T22:16:53Z
+claimed_by: backlog-7
+class: standard
+completed: 2026-09-27T22:16:44Z
+created: 2026-09-27T21:43:46Z
+id: 68
+priority: low
+started: 2026-09-27T21:54:09Z
+status: done
+tags:
+- args
+- k65-followup
+title: 'Controller::patch_status Objektform: ungerade Argumentzahl nur als Perl-Warnung'
+updated: 2026-09-27T22:16:53Z
+---
+
+Gefunden bei k65 (2026-09-27). Bei der Objektform von Controller::patch_status kommt bei ungerader Argumentzahl nur Odd number of elements als Warnung, der Aufruf läuft weiter; die Klassenform meldet Invalid arguments. Angleichen (failed Future bzw. croak nach Konvention).
+
+Commit cbec89d
