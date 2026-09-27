@@ -49,9 +49,8 @@ is hand-written in every module; dzil bumps it.
   `status => {...}`, merge default; refuses any other key itself (k65) — the client
   only sees `patch`/`type` — and an odd list after the object or the positional
   name (k68, `Invalid arguments to patch_status()`, as the keyed form always did;
-  the client's `_patch_args` and `get` still just warn there and send the
-  request); builds `{status => ...}` and delegates to the
-  client's `patch_status`), `update_status` (delegates to the client's). Both report
+  the client refuses it the same way since k69); builds `{status => ...}` and
+  delegates to the client's `patch_status`), `update_status` (delegates to the client's). Both report
   every bad input as a failed Future — `update_status` pre-checks with `_object_class`
   where the client would croak.
 
@@ -117,7 +116,15 @@ their loop check);
 `_propagation_policy_error` words a bad policy as REST does: `Unknown
 propagationPolicy 'x' for delete() (use: Background, Foreground, Orphan)`.
 `watcher` needs none: `IO::Async::Notifier::configure` croaks on an
-unknown key. **Input errors known before any request croak synchronously** in
+unknown key. An odd option list (k69, test `t/46`) is `Invalid arguments to
+METHOD()`, checked before the unknown-key check — never a Perl warning and a
+request without the stray key's value: failed Future in `get` (own parse: a
+lone argument stays the name even when spelled `namespace`, which
+`_named_args` would refuse), `list`/`_list_request`, `_patch_args` (object
+form a direct check, class form through `_named_args`), `delete` and the
+`_named_args` methods; croak in `ensure_only`, `watcher`, `controller` and the
+Controller's `watch_resource`. A new method taking options does the same.
+**Input errors known before any request croak synchronously** in
 `expand_class`, when a watcher starts, and in `update`, `update_status`, `ensure`
 (incl. `ensure_only`'s hashref resolution and missing `label`); every other
 Future-returning method returns `Future->fail($message)`. `ensure_all` never croaks —

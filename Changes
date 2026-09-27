@@ -222,13 +222,22 @@ Revision history for Net-Async-Kubernetes
    `fieldSelector`, the object forms of `patch` and `patch_status` only
    `patch` and `type`, and that of the controller's `patch_status` only
    `status` and `type`.
- - Fail `Net::Async::Kubernetes::Controller`'s `patch_status` with
-   `Invalid arguments to patch_status()` when an odd list of options
-   follows the object or a positional name, as the keyed class form
-   already did. Perl only warned "Odd number of elements in hash
-   assignment" and the patch still went out with the stray key's value
-   undef: a trailing `'type'` sent the default merge patch, and a lone
-   `'status'` after an object patched the object's own status.
+ - Refuse an odd list of options in `get`, `list`, `patch`, `patch_status`,
+   `ensure_only`, `watcher`, `controller` and
+   `Net::Async::Kubernetes::Controller`'s `patch_status` and
+   `watch_resource`, as `delete` and the keyed class forms already did.
+   Perl only warned "Odd number of elements in hash assignment" and the
+   call went on with the stray key's value undef: `get('Pod', 'web',
+   namespace => 'default', 'namespace')` fetched the Pod at cluster scope,
+   a trailing `'type'` patched with the default type, a lone `'status'`
+   after an object made the controller patch the object's own status,
+   `list('Pod', 'namespace')` listed every namespace, a trailing
+   `'objects'` left `ensure_only` pruning everything carrying its label,
+   and a trailing `'namespace'` made a watch cover the whole cluster. The
+   message is `Invalid arguments to METHOD()`, before any request;
+   `ensure_only`, `watcher`, `controller` and `watch_resource` croak, the
+   others fail their Future. A lone argument after the Kind is still the
+   name in `get`, even one spelled like an option.
 
 0.008     2026-09-22 04:13:56Z
  - Add public `rest` and `new_object($kind, %fields)` on the client: the

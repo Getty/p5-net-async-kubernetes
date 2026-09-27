@@ -117,11 +117,12 @@ sub stop {
 }
 
 sub watch_resource {
-    my ($self, $resource, %args) = @_;
+    my ($self, $resource, @args) = @_;
 
+    croak "Invalid arguments to watch_resource()" if @args % 2;
     my $spec = {
         resource => $resource,
-        %args,
+        @args,
     };
 
     push @{ $self->{watch_specs} }, $spec;
@@ -555,10 +556,12 @@ was retrying picks up at its next attempt number rather than at attempt 1.
     );
 
 Registers a watched resource and returns the watcher instance once started.
-Repeated events for the same reconcile key are coalesced into a single queued
-entry. A key's entry is dropped once it reconciles cleanly, so the queue does
-not grow with the number of objects seen; a key that is still queued, dirty or
-retrying keeps its entry, and with it its C<attempt> count.
+An odd list of parameters croaks, as C<Invalid arguments to
+watch_resource()>, before anything is registered. Repeated events for the
+same reconcile key are coalesced into a single queued entry. A key's entry is
+dropped once it reconciles cleanly, so the queue does not grow with the
+number of objects seen; a key that is still queued, dirty or retrying keeps
+its entry, and with it its C<attempt> count.
 
 =method get_object
 

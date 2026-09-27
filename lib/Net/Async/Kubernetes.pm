@@ -638,10 +638,10 @@ sub _add_to_loop {
 # ============================================================================
 
 sub list {
-    my ($self, $short_class, %args) = @_;
+    my ($self, $short_class, @args) = @_;
 
     my $rest = $self->_rest;
-    return $self->_list_request($short_class, %args)->then(sub {
+    return $self->_list_request($short_class, @args)->then(sub {
         my ($class, $response) = @_;
         return $self->_checked_response($response, "list $short_class")->then(sub {
             return Future->done($rest->inflate_list($self->_exact_class($class), $response));
@@ -665,7 +665,8 @@ C<labelSelector> and C<fieldSelector> are sent as query parameters, so
 filtering happens server-side rather than on the list that comes back.
 Any other option -- a misspelt C<labelselector> would otherwise list every
 object -- fails the L<Future> before a request is sent, naming the options
-C<list> takes.
+C<list> takes. So does an odd list of options, as C<Invalid arguments to
+list()>: its last key would otherwise go out without a value.
 
 Arguments:
 
@@ -688,8 +689,10 @@ C<fieldSelector>
 # there means the Kind is not served, not a failure - and must not read it
 # back out of the text check_response croaks with.
 sub _list_request {
-    my ($self, $short_class, %args) = @_;
+    my ($self, $short_class, @args) = @_;
 
+    return Future->fail("Invalid arguments to list()") if @args % 2;
+    my %args = @args;
     my $unknown = $self->_unknown_argument_error('list', \%args,
         qw( namespace labelSelector fieldSelector ));
     return Future->fail($unknown) if defined $unknown;
@@ -722,6 +725,7 @@ sub get {
         $args{name} = $rest_args[0];
     } elsif (@rest_args >= 2 && $rest_args[0] !~ /^(name|namespace)$/) {
         $args{name} = shift @rest_args;
+        return Future->fail("Invalid arguments to get()") if @rest_args % 2;
         %args = (%args, @rest_args);
     } elsif (@rest_args % 2 == 0) {
         %args = @rest_args;
@@ -752,7 +756,8 @@ sub get {
 
 Get a single resource by name. Returns a L<Future> that resolves to an
 inflated IO::K8s object. An option other than C<name> and C<namespace> fails
-the L<Future> before a request is sent.
+the L<Future> before a request is sent, and so does an odd list of options,
+as C<Invalid arguments to get()>.
 
 Arguments:
 
@@ -925,24 +930,16 @@ sub _patch_args {
         my $metadata = $object->metadata or return "object must have metadata";
         $name = $metadata->name or return "object must have metadata.name";
         $namespace = $metadata->namespace;
+        return "Invalid arguments to $label()" if @rest_args % 2;
         my %args = @rest_args;
         my $unknown = $self->_unknown_argument_error($label, \%args, qw( patch type ));
         return $unknown if defined $unknown;
         $patch = $args{patch} // return "$label requires 'patch' parameter";
         $patch_type = $args{type} // $default_type;
     } else {
-        my %args;
-        if (@rest_args >= 1 && !ref($rest_args[0]) && $rest_args[0] !~ /^(name|namespace|patch|type)$/) {
-            $args{name} = shift @rest_args;
-            %args = (%args, @rest_args);
-        } elsif (@rest_args % 2 == 0) {
-            %args = @rest_args;
-        } else {
-            return "Invalid arguments to $label()";
-        }
-        my $unknown = $self->_unknown_argument_error($label, \%args,
+        my ($arg_error, %args) = $self->_named_args($label, \@rest_args,
             qw( name namespace patch type ));
-        return $unknown if defined $unknown;
+        return $arg_error if defined $arg_error;
 
         ($class, my $error) = $self->_resolve_class($class_or_object);
         return $error unless defined $class;
@@ -1000,10 +997,11 @@ sub patch {
 Patch an existing resource. Returns a L<Future> that resolves to the patched
 object. Bad arguments -- among them an object that is no Kubernetes
 resource, such as an L<IO::K8s::List> or a nested C<PodSpec>, a plain
-reference such as a manifest hashref in place of the resource name, and an
-option not listed below (in the object form C<name> and C<namespace> come
-from the object and are refused as options too) -- fail the L<Future> before
-a request is sent.
+reference such as a manifest hashref in place of the resource name, an odd
+list of options after the object or the name (C<Invalid arguments to
+patch()>), and an option not listed below (in the object form C<name> and
+C<namespace> come from the object and are refused as options too) -- fail
+the L<Future> before a request is sent.
 
 Arguments:
 
@@ -1067,8 +1065,8 @@ is silently discarded. This method writes to C</status> instead.
 
 Takes the same call forms and arguments as L</patch> (object, or class plus
 name in either the shorthand or fully-keyed form), and refuses any other
-option the same way. The patch document is sent unchanged and carries its
-own C<status> key.
+option, and an odd list of options, the same way. The patch document is
+sent unchanged and carries its own C<status> key.
 
 The default patch type is C<merge>, not C<strategic> as in L</patch>: custom
 resources reject strategic merge patch with a 415, and C<merge> works for
@@ -1174,7 +1172,8 @@ sub _unknown_argument_error {
 }
 
 # Argument handling shared by log(), port_forward(), exec(), attach(),
-# cp_to_pod() and cp_from_pod(): the name positional - METHOD('Pod', 'web',
+# cp_to_pod(), cp_from_pod() and the class form of patch() and patch_status()
+# (in _patch_args): the name positional - METHOD('Pod', 'web',
 # %options) - or keyed - METHOD('Pod', name => 'web', %options). A first
 # argument that is one of @allowed starts the keyed form, so the keys read as
 # the start of the keyed form and the keys _unknown_argument_error accepts are
@@ -1571,10 +1570,13 @@ L</ensure>
 =cut
 
 sub ensure_only {
-    my ($self, %args) = @_;
+    my ($self, @args) = @_;
 
-    # Before anything is applied: namespace for namespaces would prune at
-    # cluster scope only.
+    # Before anything is applied: an odd list drops a value (no objects
+    # prunes everything carrying the label), namespace for namespaces would
+    # prune at cluster scope only.
+    croak "Invalid arguments to ensure_only()" if @args % 2;
+    my %args = @args;
     my $unknown = $self->_unknown_argument_error('ensure_only', \%args,
         qw( label objects kinds namespaces propagationPolicy ));
     croak $unknown if defined $unknown;
@@ -1705,9 +1707,11 @@ Like L</ensure_all>, but also deletes anything matching the label selector in
 the given kinds and namespaces that is not present in C<objects>. Use this
 for resources where stale objects must not survive (e.g. RBAC). Croaks
 synchronously if C<label> is missing, if C<propagationPolicy> is none of
-the values L</delete> accepts, or on any option not listed below -- a
+the values L</delete> accepts, on any option not listed below -- a
 C<namespace> meant as C<namespaces> would otherwise prune at cluster scope
-only.
+only -- and on an odd list of options (C<Invalid arguments to
+ensure_only()>), whose last key would otherwise be taken as given without a
+value: a stray C<objects> would prune everything carrying the label.
 
 Hashrefs in C<objects> are resolved as in L</ensure>, all of them before the
 first request: one without C<kind> or with an C<apiVersion> no class serves
@@ -2365,12 +2369,13 @@ sub _send_stdin_chunks {
 # ============================================================================
 
 sub watcher {
-    my ($self, $resource, %args) = @_;
+    my ($self, $resource, @args) = @_;
 
+    croak "Invalid arguments to watcher()" if @args % 2;
     my $watcher = Net::Async::Kubernetes::Watcher->new(
         kube     => $self,
         resource => $resource,
-        %args,
+        @args,
     );
 
     $self->add_child($watcher);
@@ -2391,7 +2396,9 @@ Create and register a L<Net::Async::Kubernetes::Watcher> for the specified
 resource type. The watcher is added as a child notifier and will start
 automatically when the parent is added to a loop.
 
-Returns the watcher object.
+Returns the watcher object. An odd list of parameters croaks, as
+C<Invalid arguments to watcher()>, before the watcher is created -- as an
+unknown parameter does.
 
 Arguments:
 
@@ -2408,11 +2415,12 @@ See L<Net::Async::Kubernetes::Watcher> for all available parameters.
 =cut
 
 sub controller {
-    my ($self, %args) = @_;
+    my ($self, @args) = @_;
 
+    croak "Invalid arguments to controller()" if @args % 2;
     my $controller = Net::Async::Kubernetes::Controller->new(
         kube => $self,
-        %args,
+        @args,
     );
 
     $self->add_child($controller);
@@ -2432,7 +2440,8 @@ Create and register a L<Net::Async::Kubernetes::Controller> runtime bound to
 this client. The controller is added as a child notifier and can register
 resource watches, queue reconcile work, and patch object status.
 
-Returns the controller object.
+Returns the controller object. An odd list of parameters croaks, as
+C<Invalid arguments to controller()>, before the controller is created.
 
 =cut
 
