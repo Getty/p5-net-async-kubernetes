@@ -1,0 +1,22 @@
+---
+claimed_at: 2026-09-27T03:34:35Z
+claimed_by: backlog-2
+class: standard
+completed: 2026-09-27T03:34:35Z
+created: 2026-09-27T01:23:19Z
+id: 46
+priority: low
+started: 2026-09-27T02:50:44Z
+status: done
+tags:
+- api
+- future
+title: Objektformen reichen ref des Objekts ungeprüft an build_path
+updated: 2026-09-27T03:34:35Z
+---
+
+create, update, update_status, patch mit Objekt, delete mit Objekt und ensure mit Objekt geben ref des Objekts direkt an build_path. Ein Nicht-Ressourcen-Objekt (IO::K8s::List-Instanz, verschachtelte PodSpec) stirbt dort synchron. Denselben _usable_class-Check aus k43 nutzen.
+
+Umgesetzt auf fix/backlog-2, uncommittet. prove -lr t/ Mock-Modus 33 Dateien 264 Tests PASS (Orchestrator-Gegenprobe), dzil build sauber.
+
+2026-09-27 03:34 Committed as 0babbfd: Fail object forms given a non-resource object per their error convention instead of dying in build_path. Kubernetes.pm: new _object_class helper after _usable_class, wired into create, update, update_status, the object branch of _patch_args (patch/patch_status), the object branch of delete, and ensure, plus their POD. Controller.pm: update_status code and POD. New t/31-mock-non-resource-objects.t. One Changes bullet. Verified alone in an isolated worktree, prove -lr t/ mock mode: 33 files, 264 tests, PASS.
