@@ -1,0 +1,21 @@
+---
+claimed_at: 2026-09-27T19:37:30Z
+claimed_by: backlog-2
+class: standard
+completed: 2026-09-27T19:37:30Z
+created: 2026-09-27T03:16:59Z
+id: 50
+priority: low
+started: 2026-09-27T03:37:02Z
+status: done
+tags:
+- ensure
+title: _manifest_to_object reicht die aufgelöste Klasse ohne Plus an struct_to_object
+updated: 2026-09-27T19:37:30Z
+---
+
+Spiegelt kubernetes-rest k42. struct_to_object löst den Namen erneut auf; eine einteilige Klasse wie +Gizmo wird dabei als Kind gelesen. Hier bisher durch den k43-Check verdeckt. Die aufgelöste Klasse mit Plus weitergeben; Inflates über die Seam sind mit Kubernetes::REST 1.109 bereits repariert.
+
+Umgesetzt auf fix/backlog-3, uncommittet. prove -lr t/ Mock-Modus 37 Dateien 285 Tests PASS, auch gegen installiertes Kubernetes::REST mit k43 (Orchestrator-Gegenprobe) und gegen gepinnte 1.108 (Worker).
+
+2026-09-27 19:37 Committed as 9f24494 on fix/backlog-3. prove -lr t/ mock mode in an isolated worktree at this commit: Files=37, Tests=285, PASS.
