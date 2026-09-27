@@ -140,6 +140,13 @@ L</ensure> or another object form is addressed the same way, by its own
 C<kind> and C<apiVersion> -- without this option there is no discovery to
 find its path in.
 
+A request for L<IO::K8s::Unstructured> that has no path -- without this
+option, for the explicit class name C<IO::K8s::Unstructured> (a class name
+carries no Kind), or for an object without C<kind> -- is refused before it
+is sent, like any other bad argument: the L<Future> fails with the reason,
+and L</update>, L</update_status>, L</ensure> and a watcher starting up
+croak with it instead, as they do for their other argument errors.
+
 =cut
 
 sub server {
@@ -380,6 +387,27 @@ sub _unstructured_hint {
     );
 }
 
+# The request path for $class: Kubernetes::REST's build_path with %args and
+# the Unstructured hint for $ident, the name or object the class came from.
+# Returns the path, or (undef, $message) when build_path gives up - on
+# IO::K8s::Unstructured without discovery, or without a Kind (the explicit
+# class name, an object without kind) - which every caller reports per its
+# contract, a failed Future or a croak, as it does a resolution error.
+# build_path croaks for that, and synchronously: from a Future-returning
+# method it escaped as a die. The message drops the location the croak ends
+# in, which points here; a croaking caller adds its caller's own.
+sub _request_path {
+    my ($self, $class, $ident, %args) = @_;
+    my $path = eval {
+        $self->_rest->build_path($class, %args, $self->_unstructured_hint($class, $ident));
+    };
+    return $path if defined $path;
+    my $error = $@ ? "$@" : "cannot build a request path for $class";
+    $error =~ s/\s+\z//;
+    $error =~ s/ at \S+ line \d+\.\z//;
+    return (undef, $error);
+}
+
 # The name to hand Kubernetes::REST's inflate_object, inflate_list and
 # process_watch_chunk for $class. Up to 1.108 they resolve a name again, and
 # a single-segment class of the caller's own ('+Gizmo' in the resource_map,
@@ -519,8 +547,8 @@ sub _list_request {
         $params{$selector} = $value if defined $value;
     }
 
-    my $path = $rest->build_path($class, %args,
-        $self->_unstructured_hint($class, $short_class));
+    (my $path, $error) = $self->_request_path($class, $short_class, %args);
+    return Future->fail($error) unless defined $path;
     return $self->_request_unchecked('GET', $path,
         %params ? (parameters => \%params) : (),
     )->then(sub { Future->done($class, @_) });
@@ -546,8 +574,8 @@ sub get {
     return Future->fail($error) unless defined $class;
     return Future->fail("name required for get") unless $args{name};
 
-    my $path = $rest->build_path($class, %args,
-        $self->_unstructured_hint($class, $short_class));
+    (my $path, $error) = $self->_request_path($class, $short_class, %args);
+    return Future->fail($error) unless defined $path;
     my $req = $rest->prepare_request('GET', $path);
 
     return $self->_do_request($req)->then(sub {
@@ -590,8 +618,8 @@ sub create {
         ? $object->metadata->namespace
         : undef;
 
-    my $path = $rest->build_path($class, namespace => $namespace,
-        $self->_unstructured_hint($class, $object));
+    (my $path, $error) = $self->_request_path($class, $object, namespace => $namespace);
+    return Future->fail($error) unless defined $path;
     my $req = $rest->prepare_request('POST', $path, body => $object->TO_JSON);
 
     return $self->_do_request($req)->then(sub {
@@ -633,8 +661,9 @@ sub update {
     my $name = $metadata->name or croak "object must have metadata.name";
     my $namespace = $metadata->namespace;
 
-    my $path = $rest->build_path($class, name => $name, namespace => $namespace,
-        $self->_unstructured_hint($class, $object));
+    (my $path, $error) = $self->_request_path($class, $object,
+        name => $name, namespace => $namespace);
+    croak $error unless defined $path;
     my $req = $rest->prepare_request('PUT', $path, body => $object->TO_JSON);
 
     return $self->_do_request($req)->then(sub {
@@ -677,12 +706,12 @@ sub update_status {
     my $name = $metadata->name or croak "object must have metadata.name";
     my $namespace = $metadata->namespace;
 
-    my $path = $rest->build_path($class,
+    (my $path, $error) = $self->_request_path($class, $object,
         name        => $name,
         namespace   => $namespace,
         subresource => 'status',
-        $self->_unstructured_hint($class, $object),
     );
+    croak $error unless defined $path;
     my $req = $rest->prepare_request('PUT', $path, body => $object->TO_JSON);
 
     return $self->_do_request($req)->then(sub {
@@ -779,8 +808,9 @@ sub patch {
         = $self->_patch_args('patch', 'strategic', $class_or_object, @rest_args);
     return Future->fail($error) if defined $error;
 
-    my $path = $rest->build_path($class, name => $name, namespace => $namespace,
-        $self->_unstructured_hint($class, $class_or_object));
+    (my $path, $error) = $self->_request_path($class, $class_or_object,
+        name => $name, namespace => $namespace);
+    return Future->fail($error) unless defined $path;
     my $req = $rest->prepare_request('PATCH', $path,
         body => $patch, content_type => $content_type);
 
@@ -836,12 +866,12 @@ sub patch_status {
         = $self->_patch_args('patch_status', 'merge', $class_or_object, @rest_args);
     return Future->fail($error) if defined $error;
 
-    my $path = $rest->build_path($class,
+    (my $path, $error) = $self->_request_path($class, $class_or_object,
         name        => $name,
         namespace   => $namespace,
         subresource => 'status',
-        $self->_unstructured_hint($class, $class_or_object),
     );
+    return Future->fail($error) unless defined $path;
     my $req = $rest->prepare_request('PATCH', $path,
         body => $patch, content_type => $content_type);
 
@@ -978,8 +1008,9 @@ sub _delete_request {
         $namespace = $args{namespace};
     }
 
-    my $path = $rest->build_path($class, name => $name, namespace => $namespace,
-        $self->_unstructured_hint($class, $class_or_object));
+    my ($path, $error) = $self->_request_path($class, $class_or_object,
+        name => $name, namespace => $namespace);
+    return Future->fail($error) unless defined $path;
     return $self->_request_unchecked('DELETE', $path)
         ->then(sub { Future->done($class, @_) });
 }
@@ -1062,9 +1093,11 @@ sub ensure {
     my $metadata = $object->metadata or croak "object must have metadata";
     my $name = $metadata->name or croak "object must have metadata.name";
     my $namespace = $metadata->namespace;
-    my @unstructured_hint = $self->_unstructured_hint($class, $object);
-    my $path = $rest->build_path($class, name => $name, namespace => $namespace,
-        @unstructured_hint);
+    (my $path, $error) = $self->_request_path($class, $object,
+        name => $name, namespace => $namespace);
+    croak $error unless defined $path;
+    (my $collection, $error) = $self->_request_path($class, $object, namespace => $namespace);
+    croak $error unless defined $collection;
 
     # GET the object as the server has it now; $context names the step.
     my $fetch = sub {
@@ -1122,8 +1155,6 @@ sub ensure {
     # there on it is an existing object like any other, special cases
     # included - a Job must not get a PUT onto its immutable Pod template.
     my $create = sub {
-        my $collection = $rest->build_path($class, namespace => $namespace,
-            @unstructured_hint);
         return $self->_request_unchecked('POST', $collection, body => $object->TO_JSON)->then(sub {
             my ($response) = @_;
             return $fetch->('ensure post-409 get')->then($apply_to_existing)
@@ -1459,8 +1490,9 @@ sub log {
 
     my ($class, $error) = $self->_resolve_class($short_class);
     return Future->fail($error) unless defined $class;
-    my $path = $rest->build_path($class, %args,
-        $self->_unstructured_hint($class, $short_class)) . '/log';
+    (my $path, $error) = $self->_request_path($class, $short_class, %args);
+    return Future->fail($error) unless defined $path;
+    $path .= '/log';
 
     my %params;
     $params{container}    = $container     if defined $container;
@@ -1568,8 +1600,9 @@ sub port_forward {
 
     my ($class, $error) = $self->_resolve_class($short_class);
     return Future->fail($error) unless defined $class;
-    my $path = $rest->build_path($class, %args,
-        $self->_unstructured_hint($class, $short_class)) . '/portforward';
+    (my $path, $error) = $self->_request_path($class, $short_class, %args);
+    return Future->fail($error) unless defined $path;
+    $path .= '/portforward';
 
     # Keep compatibility with Kubernetes::REST >= 1.100 by expanding repeated
     # ports query params here instead of relying on arrayref parameter support.
@@ -1664,8 +1697,9 @@ sub exec {
 
     my ($class, $error) = $self->_resolve_class($short_class);
     return Future->fail($error) unless defined $class;
-    my $path = $rest->build_path($class, %args,
-        $self->_unstructured_hint($class, $short_class)) . '/exec';
+    (my $path, $error) = $self->_request_path($class, $short_class, %args);
+    return Future->fail($error) unless defined $path;
+    $path .= '/exec';
 
     my %params = (
         command => $command,
@@ -1756,8 +1790,9 @@ sub attach {
 
     my ($class, $error) = $self->_resolve_class($short_class);
     return Future->fail($error) unless defined $class;
-    my $path = $rest->build_path($class, %args,
-        $self->_unstructured_hint($class, $short_class)) . '/attach';
+    (my $path, $error) = $self->_request_path($class, $short_class, %args);
+    return Future->fail($error) unless defined $path;
+    $path .= '/attach';
 
     my %params = (
         stdin   => $stdin  ? 'true' : 'false',

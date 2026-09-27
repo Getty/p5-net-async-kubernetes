@@ -120,6 +120,15 @@ Revision history for Net-Async-Kubernetes
    `ensure_only` took its own objects for strangers and deleted them in that
    other group. The client now hands over the resolved class exactly,
    whichever Kubernetes::REST version is installed.
+ - Fix requests for `IO::K8s::Unstructured` that have no path dying
+   synchronously in Future-returning methods: without
+   `resource_map_from_cluster`, for the explicit class name
+   `IO::K8s::Unstructured`, and for an Unstructured object without `kind`,
+   `build_path` croaked straight out of the call. `list`, `get`, `create`,
+   `patch`, `patch_status`, `delete`, `log`, `port_forward`, `exec`,
+   `attach` and the cp helpers now fail their Future with the reason;
+   `update`, `update_status`, `ensure` and the watcher croak with it, as
+   with their other bad arguments, now from the caller's line.
 
 0.008     2026-09-22 04:13:56Z
  - Add public `rest` and `new_object($kind, %fields)` on the client: the

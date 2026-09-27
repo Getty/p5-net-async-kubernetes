@@ -333,10 +333,10 @@ sub _start_watch {
     my $rest = $self->kube->_rest;
     my ($class, $error) = $self->kube->_resolve_class($self->resource);
     croak $error unless defined $class;
-    my $path = $rest->build_path($class,
+    (my $path, $error) = $self->kube->_request_path($class, $self->resource,
         ($self->namespace ? (namespace => $self->namespace) : ()),
-        $self->kube->_unstructured_hint($class, $self->resource),
     );
+    croak $error unless defined $path;
 
     my %params = (
         watch          => 'true',

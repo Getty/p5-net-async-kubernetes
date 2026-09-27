@@ -53,7 +53,8 @@ starve CRUD — never add a second UA). Uniform CRUD shape:
 
 ```
 my ($class, $error) = $self->_resolve_class($name);        # or _object_class($label, $obj)
-$rest->build_path($class, name=>, namespace=>, $self->_unstructured_hint($class, $name_or_obj))
+(my $path, $error) = $self->_request_path($class, $name_or_obj, name=>, namespace=>);
+return Future->fail($error) unless defined $path;             # croak in croaking methods
   → $rest->prepare_request(METHOD, $path, body=>, parameters=>, headers=>)
   → $self->_do_request($req)
   → ->then { $rest->check_response($res, "op class");
@@ -101,14 +102,17 @@ an `ensure` croak fails its chain. **Errors of the flow itself** (HTTP ≥ 400 v
   a Kind discovery lists but nothing ships resolves to `IO::K8s::Unstructured`.
 - Unstructured has no class-level api_version; `build_path` needs `kind` (and
   `api_version`) from the caller and takes plural and scope from the discovery catalog.
-  Every `build_path` call — CRUD, status, log, duplex, both paths in `ensure`, the
-  Watcher — passes `_unstructured_hint($class, $ident)`: empty for typed classes;
+  `build_path` is called in one place only, `_request_path($class, $ident, %args)`
+  (CRUD, status, log, duplex, both paths in `ensure`, the Watcher), which adds
+  `_unstructured_hint($class, $ident)`: empty for typed classes;
   `kind`/`apiVersion` of an Unstructured object; a name split like `expand_class`
   splits it (a qualified `group/version/Kind` keeps group and version; `+…` and
   `…::…` names carry no Kind).
 - Without discovery (`resource_map_from_cluster` 0, the default), or for an explicit
   `IO::K8s::Unstructured` class name or an Unstructured object without `kind`,
-  `build_path` still croaks synchronously — known gap.
+  `build_path` croaks. `_request_path` catches it and returns `(undef, $message)`
+  (location stripped), which the caller reports like a resolution error: failed
+  Future, or croak in `update`/`update_status`/`ensure`/the Watcher's start.
 - Unstructured status lives in the unknown-fields bag: read it via `TO_JSON`, never
   `->status`.
 
