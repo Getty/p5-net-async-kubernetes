@@ -1173,6 +1173,35 @@ sub _unknown_argument_error {
     return "Unknown argument '$unknown' to $label() (allowed: " . join(', ', @allowed) . ')';
 }
 
+# Argument handling shared by log(), port_forward(), exec(), attach(),
+# cp_to_pod() and cp_from_pod(): the name positional - METHOD('Pod', 'web',
+# %options) - or keyed - METHOD('Pod', name => 'web', %options). A first
+# argument that is one of @allowed starts the keyed form, so the keys read as
+# the start of the keyed form and the keys _unknown_argument_error accepts are
+# one list. Returns (undef, %args), or just the failure message, which the
+# caller turns into a failed Future; $label names the calling method.
+sub _named_args {
+    my ($self, $label, $rest_args, @allowed) = @_;
+    my @rest_args = @$rest_args;
+    my $keys = join '|', map { quotemeta } @allowed;
+    my %args;
+    if (@rest_args >= 1
+        && !ref($rest_args[0])
+        && $rest_args[0] !~ /^(?:$keys)$/
+    ) {
+        $args{name} = shift @rest_args;
+        return "Invalid arguments to $label()" if @rest_args % 2;
+        %args = (%args, @rest_args);
+    } elsif (@rest_args % 2 == 0) {
+        %args = @rest_args;
+    } else {
+        return "Invalid arguments to $label()";
+    }
+    my $unknown = $self->_unknown_argument_error($label, \%args, @allowed);
+    return $unknown if defined $unknown;
+    return (undef, %args);
+}
+
 # The propagationPolicy values the API server accepts in a DELETE's
 # DeleteOptions.
 my @PROPAGATION_POLICIES = qw( Background Foreground Orphan );
@@ -1741,24 +1770,12 @@ sub log {
     my ($self, $short_class, @rest_args) = @_;
 
     my $rest = $self->_rest;
-    my %args;
 
     # Support: log('Pod', 'name', ...) and log('Pod', name => 'name', ...)
-    if (@rest_args >= 1
-        && !ref($rest_args[0])
-        && $rest_args[0] !~ /^(name|namespace|container|follow|tailLines|sinceSeconds|sinceTime|timestamps|previous|limitBytes|on_line)$/
-    ) {
-        $args{name} = shift @rest_args;
-        return Future->fail("Invalid arguments to log()") if @rest_args % 2;
-        %args = (%args, @rest_args);
-    } elsif (@rest_args % 2 == 0) {
-        %args = @rest_args;
-    } else {
-        return Future->fail("Invalid arguments to log()");
-    }
-    my $unknown = $self->_unknown_argument_error('log', \%args, qw( name namespace container
-        follow tailLines sinceSeconds sinceTime timestamps previous limitBytes on_line ));
-    return Future->fail($unknown) if defined $unknown;
+    my ($arg_error, %args) = $self->_named_args('log', \@rest_args, qw( name namespace
+        container follow tailLines sinceSeconds sinceTime timestamps previous limitBytes
+        on_line ));
+    return Future->fail($arg_error) if defined $arg_error;
 
     return Future->fail("name required for log") unless $args{name};
 
@@ -1855,24 +1872,11 @@ sub port_forward {
     my ($self, $short_class, @rest_args) = @_;
 
     my $rest = $self->_rest;
-    my %args;
 
     # Support: port_forward('Pod', 'name', ...) and port_forward('Pod', name => 'name', ...)
-    if (@rest_args >= 1
-        && !ref($rest_args[0])
-        && $rest_args[0] !~ /^(name|namespace|ports|subprotocol|on_open|on_frame|on_close|on_error)$/
-    ) {
-        $args{name} = shift @rest_args;
-        return Future->fail("Invalid arguments to port_forward()") if @rest_args % 2;
-        %args = (%args, @rest_args);
-    } elsif (@rest_args % 2 == 0) {
-        %args = @rest_args;
-    } else {
-        return Future->fail("Invalid arguments to port_forward()");
-    }
-    my $unknown = $self->_unknown_argument_error('port_forward', \%args,
+    my ($arg_error, %args) = $self->_named_args('port_forward', \@rest_args,
         qw( name namespace ports subprotocol on_open on_frame on_close on_error ));
-    return Future->fail($unknown) if defined $unknown;
+    return Future->fail($arg_error) if defined $arg_error;
 
     return Future->fail("name required for port_forward") unless $args{name};
 
@@ -1956,24 +1960,11 @@ sub exec {
     my ($self, $short_class, @rest_args) = @_;
 
     my $rest = $self->_rest;
-    my %args;
 
     # Support: exec('Pod', 'name', ...) and exec('Pod', name => 'name', ...)
-    if (@rest_args >= 1
-        && !ref($rest_args[0])
-        && $rest_args[0] !~ /^(name|namespace|command|container|stdin|stdout|stderr|tty|subprotocol|on_open|on_frame|on_close|on_error)$/
-    ) {
-        $args{name} = shift @rest_args;
-        return Future->fail("Invalid arguments to exec()") if @rest_args % 2;
-        %args = (%args, @rest_args);
-    } elsif (@rest_args % 2 == 0) {
-        %args = @rest_args;
-    } else {
-        return Future->fail("Invalid arguments to exec()");
-    }
-    my $unknown = $self->_unknown_argument_error('exec', \%args, qw( name namespace command
+    my ($arg_error, %args) = $self->_named_args('exec', \@rest_args, qw( name namespace command
         container stdin stdout stderr tty subprotocol on_open on_frame on_close on_error ));
-    return Future->fail($unknown) if defined $unknown;
+    return Future->fail($arg_error) if defined $arg_error;
 
     return Future->fail("name required for exec") unless $args{name};
 
@@ -2069,24 +2060,11 @@ sub attach {
     my ($self, $short_class, @rest_args) = @_;
 
     my $rest = $self->_rest;
-    my %args;
 
     # Support: attach('Pod', 'name', ...) and attach('Pod', name => 'name', ...)
-    if (@rest_args >= 1
-        && !ref($rest_args[0])
-        && $rest_args[0] !~ /^(name|namespace|container|stdin|stdout|stderr|tty|subprotocol|on_open|on_frame|on_close|on_error)$/
-    ) {
-        $args{name} = shift @rest_args;
-        return Future->fail("Invalid arguments to attach()") if @rest_args % 2;
-        %args = (%args, @rest_args);
-    } elsif (@rest_args % 2 == 0) {
-        %args = @rest_args;
-    } else {
-        return Future->fail("Invalid arguments to attach()");
-    }
-    my $unknown = $self->_unknown_argument_error('attach', \%args, qw( name namespace
+    my ($arg_error, %args) = $self->_named_args('attach', \@rest_args, qw( name namespace
         container stdin stdout stderr tty subprotocol on_open on_frame on_close on_error ));
-    return Future->fail($unknown) if defined $unknown;
+    return Future->fail($arg_error) if defined $arg_error;
 
     return Future->fail("name required for attach") unless $args{name};
 
@@ -2176,22 +2154,9 @@ sub cp_to_pod {
     return Future->fail("cp_to_pod requires Net::Async::Kubernetes to be added to an IO::Async::Loop")
         unless $loop;
 
-    my %args;
-    if (@rest_args >= 1
-        && !ref($rest_args[0])
-        && $rest_args[0] !~ /^(name|namespace|container|local|remote|chunk_size)$/
-    ) {
-        $args{name} = shift @rest_args;
-        return Future->fail("Invalid arguments to cp_to_pod()") if @rest_args % 2;
-        %args = (%args, @rest_args);
-    } elsif (@rest_args % 2 == 0) {
-        %args = @rest_args;
-    } else {
-        return Future->fail("Invalid arguments to cp_to_pod()");
-    }
-    my $unknown = $self->_unknown_argument_error('cp_to_pod', \%args,
+    my ($arg_error, %args) = $self->_named_args('cp_to_pod', \@rest_args,
         qw( name namespace container local remote chunk_size ));
-    return Future->fail($unknown) if defined $unknown;
+    return Future->fail($arg_error) if defined $arg_error;
 
     return Future->fail("name required for cp_to_pod") unless $args{name};
 
@@ -2291,22 +2256,9 @@ sub cp_from_pod {
     return Future->fail("cp_from_pod requires Net::Async::Kubernetes to be added to an IO::Async::Loop")
         unless $loop;
 
-    my %args;
-    if (@rest_args >= 1
-        && !ref($rest_args[0])
-        && $rest_args[0] !~ /^(name|namespace|container|local|remote)$/
-    ) {
-        $args{name} = shift @rest_args;
-        return Future->fail("Invalid arguments to cp_from_pod()") if @rest_args % 2;
-        %args = (%args, @rest_args);
-    } elsif (@rest_args % 2 == 0) {
-        %args = @rest_args;
-    } else {
-        return Future->fail("Invalid arguments to cp_from_pod()");
-    }
-    my $unknown = $self->_unknown_argument_error('cp_from_pod', \%args,
+    my ($arg_error, %args) = $self->_named_args('cp_from_pod', \@rest_args,
         qw( name namespace container local remote ));
-    return Future->fail($unknown) if defined $unknown;
+    return Future->fail($arg_error) if defined $arg_error;
 
     return Future->fail("name required for cp_from_pod") unless $args{name};
 

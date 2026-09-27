@@ -100,9 +100,13 @@ first unknown key in sort order as `Unknown argument 'KEY' to METHOD() (allowed:
 a, b)` — Kubernetes::REST's wording — checked right after argument parsing, before
 class resolution, in `list` (`_list_request`), `get`, `log`, `patch`/`patch_status`
 (`_patch_args`; object form only `patch`, `type`) and `ensure_only` (croaks);
-k65 added `port_forward`, `exec`, `attach`, `cp_to_pod`, `cp_from_pod` (each
-allows exactly the keys its positional-name regex lists; before, leftovers
-went to `build_path`, which reads a stray `subresource` into the path) and
+k65 added `port_forward`, `exec`, `attach`, `cp_to_pod`, `cp_from_pod` (before,
+leftovers went to `build_path`, which reads a stray `subresource` into the path;
+since k67 these five and `log` parse through `_named_args($label, \@args,
+@allowed)`: one list per method is both the positional-name test — a first
+argument that is an allowed key, or a reference, starts the keyed form — and the
+unknown-key check; returns `(undef, %args)` or the message, `Invalid arguments
+to METHOD()` for an odd list; test: `t/45`) and
 the Controller's `patch_status` (via `$self->kube->`; object form only
 `status`, `type`) — all failed Futures, right after argument parsing (cp_*: after
 their loop check);
