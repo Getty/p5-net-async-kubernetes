@@ -80,10 +80,13 @@ Revision history for Net-Async-Kubernetes
    than 410 Gone (`code` is then that event's). Reconnects back off
    exponentially from `reconnect_delay` (1s) to `max_reconnect_delay`
    (30s) and start over once an event arrives or a watch cycle runs its
-   course; an ERROR event does not count. The new `max_retries` (default:
-   unlimited) stops the watcher after that many consecutive failed retries
-   and says so. `stop()` also cancels a pending reconnect, and `start()`
-   during one no longer opens a second watch. A controller's
+   course; an ERROR event does not count. Each delay is shortened at
+   random by up to the new `reconnect_jitter` (default 0.2, 0 for exact
+   delays), so watchers that fail together do not reconnect together;
+   `retryAfterSeconds` is the delay actually waited. The new `max_retries`
+   (default: unlimited) stops the watcher after that many consecutive
+   failed retries and says so. `stop()` also cancels a pending reconnect,
+   and `start()` during one no longer opens a second watch. A controller's
    `on_watch_error` receives these reports as well. ERROR events are still
    dispatched as before, and 410 Gone still reconnects at once without a
    resourceVersion.

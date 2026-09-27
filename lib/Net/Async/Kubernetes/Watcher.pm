@@ -25,6 +25,13 @@ sub configure {
             unless defined $value && !ref $value && looks_like_number($value) && $value >= 0;
         $self->{$key} = $value;
     }
+    if (exists $params{reconnect_jitter}) {
+        my $value = delete $params{reconnect_jitter};
+        croak "reconnect_jitter must be a number from 0 to 1"
+            unless defined $value && !ref $value && looks_like_number($value)
+                && $value >= 0 && $value <= 1;
+        $self->{reconnect_jitter} = $value;
+    }
     if (exists $params{max_retries}) {
         my $value = delete $params{max_retries};
         croak "max_retries must be a non-negative integer, or undef for no limit"
@@ -47,10 +54,11 @@ sub configure {
 Internal L<IO::Async::Notifier> configuration method. Handles initialization
 of C<kube>, C<resource>, C<namespace>, C<timeout>, C<label_selector>,
 C<field_selector>, C<names>, C<event_types>, C<reconnect_delay>,
-C<max_reconnect_delay>, C<max_retries>, C<min_watch_duration>, and all event
-callbacks (C<on_added>, C<on_modified>, C<on_deleted>, C<on_error>,
-C<on_event>). Croaks on a C<reconnect_delay>, C<max_reconnect_delay> or
-C<min_watch_duration> that is not a non-negative number, and on a
+C<max_reconnect_delay>, C<reconnect_jitter>, C<max_retries>,
+C<min_watch_duration>, and all event callbacks (C<on_added>, C<on_modified>,
+C<on_deleted>, C<on_error>, C<on_event>). Croaks on a C<reconnect_delay>,
+C<max_reconnect_delay> or C<min_watch_duration> that is not a non-negative
+number, on a C<reconnect_jitter> that is not a number from 0 to 1, and on a
 C<max_retries> that is neither a non-negative integer nor C<undef>.
 
 =cut
@@ -97,7 +105,8 @@ sub reconnect_delay     { $_[0]->{reconnect_delay} // 1 }
 
 Seconds to wait before reconnecting after a failed watch attempt (see
 L</on_error> for what counts as one). Default: 1. Each further consecutive
-failure doubles the delay, up to L</max_reconnect_delay>. A reconnect that
+failure doubles the delay, up to L</max_reconnect_delay>, and every delay is
+shortened at random by up to L</reconnect_jitter>. A reconnect that
 gets through -- an event arrives on the stream (an C<ERROR> event does not
 count), or the watch cycle ends cleanly -- starts the next failure at
 C<reconnect_delay> again. A watch cycle that ends cleanly (the server-side
@@ -115,6 +124,25 @@ Upper bound in seconds for the reconnect delay. Default: 30, the same cap
 client-go's reflector puts on its watch backoff: a cluster that comes back is
 noticed within half a minute, and one that stays away costs one request and
 one report per half minute.
+
+=cut
+
+sub reconnect_jitter    { $_[0]->{reconnect_jitter} // 0.2 }
+
+=attr reconnect_jitter
+
+The share, from 0 to 1, by which each reconnect delay is shortened at random.
+Default: 0.2 -- a delay of 4 seconds becomes one between 3.2 and 4 seconds,
+rounded to the millisecond. Without it, watchers that fail together (every
+watch of a process, or of a fleet, on an API server that restarts) would
+send their reconnects together again on every step of the backoff.
+
+The delay is only ever shortened: L</reconnect_delay> and
+L</max_reconnect_delay> stay upper bounds, and C<retryAfterSeconds> in the
+report (see L</on_error>) is the delay the watcher actually waits. With the
+default each step of the backoff still lies above the one before it
+(0.8 times double the delay is more than the delay). C<0> turns jitter off,
+for delays that are exactly the documented ones.
 
 =cut
 
@@ -465,6 +493,10 @@ sub _start_watch {
 # timers use too. Tests replace it.
 sub _now { $_[0]->loop->time }
 
+# The random share of reconnect_jitter a delay is shortened by, from 0 up to
+# (not including) 1. Tests replace it.
+sub _random_fraction { rand() }
+
 # The cause of a failure for a stream that ended on the ERROR event $error,
 # the raw Status hashref: its code, reason and message.
 sub _error_event_cause {
@@ -503,6 +535,11 @@ sub _watch_failed {
         $exponent = 64 if $exponent > 64;
         $delay = $self->reconnect_delay * 2 ** $exponent;
         $delay = $self->max_reconnect_delay if $delay > $self->max_reconnect_delay;
+        # Shortened, never lengthened, so both delays stay upper bounds.
+        if (my $jitter = $self->reconnect_jitter) {
+            $delay -= $delay * $jitter * $self->_random_fraction;
+            $delay = int($delay * 1000 + 0.5) / 1000;
+        }
 
         # Scheduled before the report, so an on_error that stops the watcher
         # cancels it.
@@ -638,7 +675,8 @@ The watcher automatically:
 =item * Retries a failed watch attempt -- a transport error, a rejection
 such as C<401> or C<403>, or a stream that closes at once without an event
 or right after an C<ERROR> event -- with an exponential backoff (1s, 2s, 4s,
-... up to 30s by default, see L</reconnect_delay>), reports every such
+... up to 30s by default, see L</reconnect_delay>, each shortened at random
+by up to a fifth, see L</reconnect_jitter>), reports every such
 failure to L</on_error> or as a warning, and gives up after L</max_retries>
 consecutive failures when a limit is set
 

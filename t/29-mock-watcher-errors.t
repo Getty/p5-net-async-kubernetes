@@ -77,9 +77,10 @@ subtest 'a failed watch request reaches on_error with its cause' => sub {
 
     my @errors;
     my $watcher = $kube->watcher('Pod',
-        namespace => 'default',
-        on_added  => sub {},
-        on_error  => sub { push @errors, $_[0] },
+        namespace        => 'default',
+        reconnect_jitter => 0,
+        on_added         => sub {},
+        on_error         => sub { push @errors, $_[0] },
     );
     settle();
 
@@ -105,9 +106,10 @@ subtest 'the reconnect delay doubles up to max_reconnect_delay' => sub {
     my $kube = make_kube();
     my @errors;
     my $watcher = $kube->watcher('Pod',
-        namespace => 'default',
-        on_added  => sub {},
-        on_error  => sub { push @errors, $_[0] },
+        namespace        => 'default',
+        reconnect_jitter => 0,
+        on_added         => sub {},
+        on_error         => sub { push @errors, $_[0] },
     );
     is($watcher->reconnect_delay, 1, 'reconnect_delay defaults to 1');
     is($watcher->max_reconnect_delay, 30, 'max_reconnect_delay defaults to 30');
@@ -125,6 +127,7 @@ subtest 'reconnect_delay and max_reconnect_delay are configurable' => sub {
     my $kube = make_kube();
     my $watcher = $kube->watcher('Pod',
         namespace           => 'default',
+        reconnect_jitter    => 0,
         reconnect_delay     => 0.5,
         max_reconnect_delay => 3,
         on_added            => sub {},
@@ -148,14 +151,79 @@ subtest 'reconnect_delay and max_reconnect_delay are configurable' => sub {
     }
 };
 
+# karr k52: without jitter, watchers that fail together - every watch on an
+# API server that restarts - reconnect together, on every step of the
+# backoff. reconnect_jitter shortens each delay by a random share of up to
+# itself. The tests above set it to 0 to see the exact delays.
+subtest 'reconnect_jitter shortens each delay by up to its share' => sub {
+    no warnings 'redefine';
+    for my $case (
+        # [ random fraction, expected delays with reconnect_jitter 0.2 ]
+        [ 0,        [1, 2, 4, 8, 16, 30, 30] ],
+        [ 0.5,      [0.9, 1.8, 3.6, 7.2, 14.4, 27, 27] ],
+        [ 0.999999, [0.8, 1.6, 3.2, 6.4, 12.8, 24, 24] ],
+    ) {
+        my ($fraction, $expected) = @$case;
+        local *Net::Async::Kubernetes::Watcher::_random_fraction = sub { $fraction };
+        my $kube = make_kube();
+        my @errors;
+        my $watcher = $kube->watcher('Pod',
+            namespace        => 'default',
+            reconnect_jitter => 0.2,
+            on_added         => sub {},
+            on_error         => sub { push @errors, $_[0] },
+        );
+        fire_timer() for 1 .. 6;
+        is_deeply(delays(), $expected, "random fraction $fraction: delays");
+        is_deeply([ map { $_->{details}{retryAfterSeconds} } @errors ], $expected,
+            "random fraction $fraction: each report announces the delay it waits");
+        like($errors[1]{message}, qr/^watch Pod failed, retrying in \Q$expected->[1]\Es: /,
+            "random fraction $fraction: so does the message");
+        $watcher->stop;
+    }
+};
+
+subtest 'jittered delays stay within their bounds' => sub {
+    srand(42);
+    my $kube = make_kube();
+    my $watcher = $kube->watcher('Pod',
+        namespace        => 'default',
+        reconnect_jitter => 0.5,
+        on_added         => sub {},
+        on_error         => sub {},
+    );
+    fire_timer() for 1 .. 19;
+    my @nominal = map { my $d = 2 ** $_; $d > 30 ? 30 : $d } 0 .. 19;
+    my @delays = @{ delays() };
+    is(scalar @delays, 20, 'twenty reconnects scheduled');
+    my @outside = grep { $delays[$_] > $nominal[$_] || $delays[$_] < $nominal[$_] / 2 } 0 .. $#delays;
+    is_deeply(\@outside, [], 'each delay lies between half its nominal value and the nominal value');
+    my %capped = map { $delays[$_] => 1 } grep { $nominal[$_] == 30 } 0 .. $#delays;
+    ok(keys %capped > 1, 'the delays at the cap differ from each other');
+    ok(!grep({ $delays[$_] == $nominal[$_] } 0 .. $#delays), 'no delay is left at its nominal value');
+    $watcher->stop;
+};
+
+subtest 'reconnect_jitter defaults to 0.2 and is validated' => sub {
+    is(Net::Async::Kubernetes::Watcher->new(resource => 'Pod')->reconnect_jitter, 0.2, 'default');
+    is(Net::Async::Kubernetes::Watcher->new(resource => 'Pod', reconnect_jitter => 1)->reconnect_jitter,
+        1, '1 is allowed');
+    for my $bad ([0.1], -0.1, 1.5, 'lots', undef) {
+        my $shown = !defined $bad ? 'undef' : ref $bad ? 'an arrayref' : "'$bad'";
+        eval { Net::Async::Kubernetes::Watcher->new(resource => 'Pod', reconnect_jitter => $bad) };
+        like($@, qr/^reconnect_jitter must be a number from 0 to 1/, "rejects $shown");
+    }
+};
+
 subtest 'max_retries stops the watcher and says so' => sub {
     my $kube = make_kube();
     my @errors;
     my $watcher = $kube->watcher('Pod',
-        namespace   => 'default',
-        max_retries => 2,
-        on_added    => sub {},
-        on_error    => sub { push @errors, $_[0] },
+        namespace        => 'default',
+        reconnect_jitter => 0,
+        max_retries      => 2,
+        on_added         => sub {},
+        on_error         => sub { push @errors, $_[0] },
     );
     fire_timer() for 1 .. 2;
 
@@ -196,9 +264,10 @@ subtest 'a reconnect that receives data resets the backoff' => sub {
     my $kube = make_kube();
     my (@errors, @added);
     my $watcher = $kube->watcher('Pod',
-        namespace => 'default',
-        on_added  => sub { push @added, $_[0]->metadata->name },
-        on_error  => sub { push @errors, $_[0] },
+        namespace        => 'default',
+        reconnect_jitter => 0,
+        on_added         => sub { push @added, $_[0]->metadata->name },
+        on_error         => sub { push @errors, $_[0] },
     );
     fire_timer();
     is($timers[-1]{after}, 2, 'two consecutive failures: 2s');
@@ -222,6 +291,7 @@ subtest 'a watch cycle that completes cleanly resets the backoff' => sub {
     # ran its course, on a virtual clock). Off here: this is about the reset.
     my $watcher = $kube->watcher('Pod',
         namespace          => 'default',
+        reconnect_jitter   => 0,
         min_watch_duration => 0,
         on_added           => sub {},
         on_error           => sub { push @errors, $_[0] },
@@ -248,9 +318,10 @@ subtest 'a rejected watch request (HTTP 403) is a failed attempt' => sub {
 
     my @errors;
     my $watcher = $kube->watcher('Pod',
-        namespace => 'default',
-        on_added  => sub {},
-        on_error  => sub { push @errors, $_[0] },
+        namespace        => 'default',
+        reconnect_jitter => 0,
+        on_added         => sub {},
+        on_error         => sub { push @errors, $_[0] },
     );
     settle();
 
@@ -273,9 +344,10 @@ subtest 'a rejected watch request delivers no events, only its error body' => su
 
     my (@errors, @added);
     my $watcher = $kube->watcher('Pod',
-        namespace => 'default',
-        on_added  => sub { push @added, $_[0]->metadata->name },
-        on_error  => sub { push @errors, $_[0] },
+        namespace        => 'default',
+        reconnect_jitter => 0,
+        on_added         => sub { push @added, $_[0]->metadata->name },
+        on_error         => sub { push @errors, $_[0] },
     );
     settle();
 
@@ -296,8 +368,9 @@ subtest 'without on_error a failed watch request warns' => sub {
     my @warnings;
     local $SIG{__WARN__} = sub { push @warnings, $_[0] };
     my $watcher = $kube->watcher('Pod',
-        namespace => 'default',
-        on_added  => sub {},
+        namespace        => 'default',
+        reconnect_jitter => 0,
+        on_added         => sub {},
     );
     settle();
 

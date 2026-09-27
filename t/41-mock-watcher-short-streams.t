@@ -68,13 +68,15 @@ sub make_kube {
     return $kube;
 }
 
-# A watcher on $PATH collecting its reports.
+# A watcher on $PATH collecting its reports; no jitter (karr k52), so the
+# delays are exact.
 sub watch {
     my ($kube, $errors, %args) = @_;
     return $kube->watcher('Pod',
-        namespace => 'default',
-        on_added  => sub {},
-        on_error  => sub { push @$errors, $_[0] },
+        namespace        => 'default',
+        reconnect_jitter => 0,
+        on_added         => sub {},
+        on_error         => sub { push @$errors, $_[0] },
         %args,
     );
 }

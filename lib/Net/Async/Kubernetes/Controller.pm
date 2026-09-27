@@ -488,8 +488,8 @@ C<on_error> passed to C<watch_resource> takes precedence for that watch.
 Without either, the watcher C<warn>s about failed attempts.
 
 The watcher's reconnect settings (C<reconnect_delay>, C<max_reconnect_delay>,
-C<max_retries>, C<min_watch_duration>) are passed to C<watch_resource> with
-the other watcher arguments. A watch that gave up on C<max_retries> stays stopped; C<stop> and
+C<reconnect_jitter>, C<max_retries>, C<min_watch_duration>) are passed to
+C<watch_resource> with the other watcher arguments. A watch that gave up on C<max_retries> stays stopped; C<stop> and
 C<start> on the controller build it anew.
 
 =item C<retry_delay>

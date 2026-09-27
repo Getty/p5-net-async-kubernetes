@@ -34,8 +34,8 @@ objects. `$VERSION` is hand-written in every module; dzil bumps it.
 - **`Net::Async::Kubernetes::Watcher`** — Notifier; auto-reconnecting watch stream.
   Config: `kube` (**weak ref**), `resource`, `namespace`, `timeout` (300),
   `label_selector`, `field_selector`, `names`, `event_types`, `reconnect_delay` (1),
-  `max_reconnect_delay` (30), `max_retries` (undef = forever), `min_watch_duration`
-  (1; the four are validated in `configure`, croak),
+  `max_reconnect_delay` (30), `reconnect_jitter` (0.2), `max_retries` (undef =
+  forever), `min_watch_duration` (1; the five are validated in `configure`, croak),
   `on_added/on_modified/on_deleted/on_error/on_event`.
   `start` idempotent; `stop`.
 - **`Net::Async::Kubernetes::Controller`** — Notifier; minimal controller runtime.
@@ -193,7 +193,10 @@ croaks with.
   event within `min_watch_duration` (default 1 s, client-go's "very short watch";
   measured with `_now` = `$loop->time`, the test override point). Those, a response
   ≥ 400 and a failed request → `_watch_failed`: delay `reconnect_delay * 2**(n-1)`
-  capped at `max_reconnect_delay` (exponent capped at 64), held in `_retry_future`;
+  capped at `max_reconnect_delay` (exponent capped at 64), then shortened (never
+  lengthened) by `reconnect_jitter * _random_fraction` and rounded to ms
+  (`_random_fraction` = `rand`, the test override point; tests that assert delays
+  pass `reconnect_jitter => 0`), held in `_retry_future`;
   a non-ERROR event on a stream resets the failure count (an ERROR event never
   does; a 410 counts as an event for the empty-stream rule). Each failure is
   reported — whatever `event_types` says — as a `Status` hashref (`reason =>
