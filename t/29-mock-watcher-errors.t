@@ -217,10 +217,14 @@ subtest 'a reconnect that receives data resets the backoff' => sub {
 subtest 'a watch cycle that completes cleanly resets the backoff' => sub {
     my $kube = make_kube();
     my @errors;
+    # The mocked stream ends at once, without an event, which counts as a
+    # failure since karr k51 (t/41 covers that rule, and a quiet stream that
+    # ran its course, on a virtual clock). Off here: this is about the reset.
     my $watcher = $kube->watcher('Pod',
-        namespace => 'default',
-        on_added  => sub {},
-        on_error  => sub { push @errors, $_[0] },
+        namespace          => 'default',
+        min_watch_duration => 0,
+        on_added           => sub {},
+        on_error           => sub { push @errors, $_[0] },
     );
     fire_timer();
     is($timers[-1]{after}, 2, 'two consecutive failures: 2s');

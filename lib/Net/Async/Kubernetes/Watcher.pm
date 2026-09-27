@@ -18,7 +18,7 @@ sub configure {
     }
     # Checked here: anything else (a Controller-style arrayref of delays, a
     # word) numifies to a delay nobody asked for and the retries go quiet.
-    for my $key (qw(reconnect_delay max_reconnect_delay)) {
+    for my $key (qw(reconnect_delay max_reconnect_delay min_watch_duration)) {
         next unless exists $params{$key};
         my $value = delete $params{$key};
         croak "$key must be a non-negative number of seconds"
@@ -47,11 +47,11 @@ sub configure {
 Internal L<IO::Async::Notifier> configuration method. Handles initialization
 of C<kube>, C<resource>, C<namespace>, C<timeout>, C<label_selector>,
 C<field_selector>, C<names>, C<event_types>, C<reconnect_delay>,
-C<max_reconnect_delay>, C<max_retries>, and all event callbacks
-(C<on_added>, C<on_modified>, C<on_deleted>, C<on_error>, C<on_event>).
-Croaks on a C<reconnect_delay> or C<max_reconnect_delay> that is not a
-non-negative number, and on a C<max_retries> that is neither a non-negative
-integer nor C<undef>.
+C<max_reconnect_delay>, C<max_retries>, C<min_watch_duration>, and all event
+callbacks (C<on_added>, C<on_modified>, C<on_deleted>, C<on_error>,
+C<on_event>). Croaks on a C<reconnect_delay>, C<max_reconnect_delay> or
+C<min_watch_duration> that is not a non-negative number, and on a
+C<max_retries> that is neither a non-negative integer nor C<undef>.
 
 =cut
 
@@ -95,13 +95,15 @@ sub reconnect_delay     { $_[0]->{reconnect_delay} // 1 }
 
 =attr reconnect_delay
 
-Seconds to wait before reconnecting after a failed watch request (see
+Seconds to wait before reconnecting after a failed watch attempt (see
 L</on_error> for what counts as one). Default: 1. Each further consecutive
 failure doubles the delay, up to L</max_reconnect_delay>. A reconnect that
-gets through -- data arrives on the stream, or the watch cycle ends cleanly
--- starts the next failure at C<reconnect_delay> again. A watch cycle that
-ends cleanly (the server-side L</timeout>) is not a failure and reconnects
-at once.
+gets through -- an event arrives on the stream (an C<ERROR> event does not
+count), or the watch cycle ends cleanly -- starts the next failure at
+C<reconnect_delay> again. A watch cycle that ends cleanly (the server-side
+L</timeout>) is not a failure and reconnects at once; one that closes within
+L</min_watch_duration> without an event, or right after an C<ERROR> event,
+did not end cleanly.
 
 =cut
 
@@ -125,6 +127,22 @@ gives up. Default: C<undef>, retry for as long as the watcher runs. When the
 limit is exceeded the watcher stops and reports that it gave up (see
 L</on_error>); C<start()> begins again with the full count. C<0> gives up on
 the first failure.
+
+=cut
+
+sub min_watch_duration  { $_[0]->{min_watch_duration} // 1 }
+
+=attr min_watch_duration
+
+Seconds a watch stream has to stay open before it may end without an event.
+Default: 1. A stream that closes sooner without delivering a single event is
+no watch cycle that ran its course but a failed attempt (see L</on_error>):
+reconnecting at once would send the API server one watch request after
+another in a tight loop -- a proxy or API server that accepts the watch and
+closes it straight away. The default is the threshold client-go's reflector
+uses for the same case (a "very short watch"): a real watch cycle runs until
+the server-side L</timeout>, minutes, so one second tells the two apart with
+room for a slow connection. C<0> turns the check off.
 
 =cut
 
@@ -218,11 +236,15 @@ C<Status>, in two cases:
 mid-stream: the raw C<Status> hashref the API server sent. C<410 Gone> is
 handled internally and never reaches it.
 
-=item * A failed watch request: the request fails outright (TLS support
-missing, a TLS or connection error, an unreachable API server) or the API
-server rejects it with an HTTP error status (C<401>, C<403>, C<5xx>). The
-watcher builds this C<Status> itself. C<reason> is C<WatchFailed>, C<code>
-the HTTP status of a rejected request or C<0> when no response arrived,
+=item * A failed watch attempt: the request fails outright (TLS support
+missing, a TLS or connection error, an unreachable API server), the API
+server rejects it with an HTTP error status (C<401>, C<403>, C<5xx>), or the
+stream it opens ends badly -- within L</min_watch_duration> without a single
+event, or right after an C<ERROR> event other than C<410 Gone> (that event
+is reported first, as above). The watcher builds this C<Status> itself.
+C<reason> is C<WatchFailed>, C<code> the HTTP status of a rejected request,
+the C<code> of the C<ERROR> event the stream ended on, or C<0> when neither
+is there (no response arrived, or the stream closed without an event),
 C<message> names the resource, what the watcher does next and the cause, and
 C<details> carries C<kind> (the watched resource) and, while the watcher
 retries, C<retryAfterSeconds>:
@@ -243,7 +265,7 @@ stopped by then.
 
 =back
 
-A failed watch request is reported whatever L</event_types> says. Without an
+A failed watch attempt is reported whatever L</event_types> says. Without an
 C<on_error> it is passed to C<warn> instead, so a watch that cannot reach its
 cluster never fails silently. C<ERROR> events without an C<on_error> are
 dropped, as before. The callback may call C<stop()>, which also cancels the
@@ -353,15 +375,18 @@ sub _start_watch {
     # The resolved class, handed over exactly (see the client's _exact_class).
     my $exact_class = $self->kube->_exact_class($class);
 
+    # What tells a watch cycle that ran its course from a failed attempt
+    # when this stream ends: when it started, whether any event came, and
+    # the ERROR event it would end on.
+    $self->{_stream_started} = $self->_now;
+    $self->{_stream_events}  = 0;
+    $self->{_stream_error}   = undef;
+
     weaken(my $weak_self = $self);
 
     my $f = $self->kube->_do_streaming_request($req, sub {
         my ($chunk) = @_;
         return unless $weak_self;
-
-        # Data on the stream: this attempt got through, so a failure after
-        # it starts the backoff over.
-        $weak_self->{_failures} = 0;
 
         my $buffer = $weak_self->{_buffer};
         for my $result ($rest->process_watch_chunk($exact_class, \$buffer, $chunk)) {
@@ -372,10 +397,22 @@ sub _start_watch {
             }
 
             my $event = $result->{event};
+            $weak_self->{_stream_events}++;
 
-            if ($result->{error_code} == 410) {
-                $weak_self->{_resource_version} = undef;
-                return;
+            if ($result->{is_error}) {
+                if ($result->{error_code} == 410) {
+                    $weak_self->{_resource_version} = undef;
+                    $weak_self->{_stream_error} = undef;
+                    return;
+                }
+                # Not reset by an ERROR event: a server that sends one and
+                # closes, again and again, must meet a growing backoff.
+                $weak_self->{_stream_error} = $event->object;
+            } else {
+                # An event: this attempt got through, so a failure after it
+                # starts the backoff over.
+                $weak_self->{_failures} = 0;
+                $weak_self->{_stream_error} = undef;
             }
 
             $weak_self->_dispatch_event($event);
@@ -397,6 +434,18 @@ sub _start_watch {
             } ? 'HTTP ' . $response->status : $@;
             return $weak_self->_watch_failed($cause, $response->status);
         }
+        # So is a stream that ends on an ERROR event (other than 410 Gone,
+        # which lets the reconnect start over), or at once without any.
+        # Reconnecting at once would be a tight loop against the API server.
+        if (my $error = $weak_self->{_stream_error}) {
+            return $weak_self->_watch_failed($weak_self->_error_event_cause($error),
+                ref $error eq 'HASH' ? $error->{code} : undef);
+        }
+        my $elapsed = $weak_self->_now - $weak_self->{_stream_started};
+        if (!$weak_self->{_stream_events} && $elapsed < $weak_self->min_watch_duration) {
+            return $weak_self->_watch_failed(
+                sprintf('stream closed after %.1fs without an event', $elapsed));
+        }
         $weak_self->{_failures} = 0;
         $weak_self->_start_watch;
     });
@@ -412,10 +461,27 @@ sub _start_watch {
     $self->{_watch_future} = $f;
 }
 
-# A watch request that failed outright, or was rejected with HTTP status
-# $code. Schedules the next attempt with exponential backoff - or, once
-# max_retries consecutive failures have been retried, stops the watcher - and
-# reports the failure either way: to on_error, else as a warning.
+# The clock min_watch_duration is measured with: the loop's, which its
+# timers use too. Tests replace it.
+sub _now { $_[0]->loop->time }
+
+# The cause of a failure for a stream that ended on the ERROR event $error,
+# the raw Status hashref: its code, reason and message.
+sub _error_event_cause {
+    my ($self, $error) = @_;
+    return 'stream closed after an ERROR event' unless ref $error eq 'HASH';
+    my $what = join ' ', grep { defined && length } @{$error}{qw(code reason)};
+    return 'stream closed after an ERROR event'
+        . (length $what ? " ($what)" : '')
+        . (defined $error->{message} ? ': ' . $error->{message} : '');
+}
+
+# A failed watch attempt: a request that failed outright, was rejected with
+# HTTP status $code, or opened a stream that ended badly ($code then the
+# ERROR event's, if any). Schedules the next attempt with exponential
+# backoff - or, once max_retries consecutive failures have been retried,
+# stops the watcher - and reports the failure either way: to on_error, else
+# as a warning.
 sub _watch_failed {
     my ($self, $cause, $code) = @_;
     my $failures = ++$self->{_failures};
@@ -569,11 +635,12 @@ The watcher automatically:
 
 =item * Handles 410 Gone by clearing the C<resourceVersion> and restarting
 
-=item * Retries a failed watch request -- a transport error, or a rejection
-such as C<401> or C<403> -- with an exponential backoff (1s, 2s, 4s, ... up
-to 30s by default, see L</reconnect_delay>), reports every such failure to
-L</on_error> or as a warning, and gives up after L</max_retries> consecutive
-failures when a limit is set
+=item * Retries a failed watch attempt -- a transport error, a rejection
+such as C<401> or C<403>, or a stream that closes at once without an event
+or right after an C<ERROR> event -- with an exponential backoff (1s, 2s, 4s,
+... up to 30s by default, see L</reconnect_delay>), reports every such
+failure to L</on_error> or as a warning, and gives up after L</max_retries>
+consecutive failures when a limit is set
 
 =item * Filters events client-side by name patterns (C<names>) and event types (C<event_types>)
 

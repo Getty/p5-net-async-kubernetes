@@ -82,6 +82,12 @@ sub mock_response_queue {
 # mock_watch_events('/api/v1/pods', [...], { complete => 1 });       # resolve after events
 # mock_watch_events('/api/v1/pods', [...], { fail => 'some error' }); # fail after events
 # mock_watch_events('/api/v1/pods', [...], { status => 403 });       # rejected, see below
+# mock_watch_events('/api/v1/pods', [...], { complete => 1, delay => 300 });
+#
+# delay => $seconds delivers the events - and completes or fails - that many
+# seconds after the request instead of one tick later, through the loop's
+# delay_future: a watch cycle that runs until the server-side timeout. A test
+# that replaces delay_future with a manual timer decides when that is.
 #
 # An error status (>= 400) is a rejected request, as the real
 # _do_streaming_request has it since karr k33: nothing is streamed - the
@@ -227,7 +233,7 @@ sub install {
                 # Deliver all events in one tick (like a real chunked response).
                 # Don't check cancellation between events - the watcher's chunk
                 # callback can handle events even after stop() is called.
-                $self->loop->later(sub {
+                my $deliver = sub {
                     for my $event (@$events) {
                         my $line = $json->encode($event) . "\n";
                         $on_chunk->($line);
@@ -241,7 +247,14 @@ sub install {
                             content => '',
                         )) unless $f->is_cancelled;
                     }
-                });
+                };
+                if (my $delay = $opts->{delay}) {
+                    my $timer = $self->loop->delay_future(after => $delay)
+                        ->on_done(sub { $deliver->() });
+                    $f->on_cancel(sub { $timer->cancel });
+                } else {
+                    $self->loop->later($deliver);
+                }
             }
 
             # Return pending future - will be cancelled when stop() is called

@@ -73,13 +73,20 @@ Revision history for Net-Async-Kubernetes
    a Status hashref with `reason` `WatchFailed`, the HTTP status in `code`
    (0 when no response arrived), the cause in `message` and the next delay
    in `details.retryAfterSeconds`; without an `on_error` it is warned
-   about. Reconnects back off exponentially from `reconnect_delay` (1s) to
-   `max_reconnect_delay` (30s) and start over once a reconnect gets
-   through. The new `max_retries` (default: unlimited) stops the watcher
-   after that many consecutive failed retries and says so. `stop()` also
-   cancels a pending reconnect, and `start()` during one no longer opens a
-   second watch. A controller's `on_watch_error` receives these reports as
-   well. ERROR events and the 410 Gone handling are unchanged.
+   about. So is a watch stream that ends badly, which used to reconnect at
+   once, in a tight loop against the API server: one that closes within
+   the new `min_watch_duration` (1s, client-go's threshold for the same
+   case) without delivering an event, or right after an ERROR event other
+   than 410 Gone (`code` is then that event's). Reconnects back off
+   exponentially from `reconnect_delay` (1s) to `max_reconnect_delay`
+   (30s) and start over once an event arrives or a watch cycle runs its
+   course; an ERROR event does not count. The new `max_retries` (default:
+   unlimited) stops the watcher after that many consecutive failed retries
+   and says so. `stop()` also cancels a pending reconnect, and `start()`
+   during one no longer opens a second watch. A controller's
+   `on_watch_error` receives these reports as well. ERROR events are still
+   dispatched as before, and 410 Gone still reconnects at once without a
+   resourceVersion.
  - Fix the streaming transport behind `log()` with `on_line` and behind the
    watcher failing its Future at the end of every stream ("Can't call
    method "code""): a streamed log failed after its last line, and a watch

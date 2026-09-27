@@ -34,8 +34,9 @@ objects. `$VERSION` is hand-written in every module; dzil bumps it.
 - **`Net::Async::Kubernetes::Watcher`** — Notifier; auto-reconnecting watch stream.
   Config: `kube` (**weak ref**), `resource`, `namespace`, `timeout` (300),
   `label_selector`, `field_selector`, `names`, `event_types`, `reconnect_delay` (1),
-  `max_reconnect_delay` (30), `max_retries` (undef = forever; the three are validated
-  in `configure`, croak), `on_added/on_modified/on_deleted/on_error/on_event`.
+  `max_reconnect_delay` (30), `max_retries` (undef = forever), `min_watch_duration`
+  (1; the four are validated in `configure`, croak),
+  `on_added/on_modified/on_deleted/on_error/on_event`.
   `start` idempotent; `stop`.
 - **`Net::Async::Kubernetes::Controller`** — Notifier; minimal controller runtime.
   Config: `kube` (**weak ref**) OR client-construction keys (builds its own client,
@@ -187,15 +188,20 @@ croaks with.
   the resource croaks in `_start_watch` (at add/start).
 - **410 Gone**: clears `resourceVersion`, drops remaining events in that chunk, is NOT
   delivered to `on_error`; stream ends naturally and reconnects without a version.
-- Reconnect: a cycle that ends with status < 400 → immediate restart. A response
-  ≥ 400 or a failed request → `_watch_failed`: delay `reconnect_delay * 2**(n-1)`
+- Reconnect: a cycle that ends with status < 400 → immediate restart (and failure
+  count reset) — unless it ended right after a non-410 ERROR event, or without any
+  event within `min_watch_duration` (default 1 s, client-go's "very short watch";
+  measured with `_now` = `$loop->time`, the test override point). Those, a response
+  ≥ 400 and a failed request → `_watch_failed`: delay `reconnect_delay * 2**(n-1)`
   capped at `max_reconnect_delay` (exponent capped at 64), held in `_retry_future`;
-  data arriving on a stream resets the failure count. Each failure is reported —
-  whatever `event_types` says — as a `Status` hashref (`reason => 'WatchFailed'`,
-  `code` = HTTP status or 0, `message` "watch X failed, retrying in Ns: cause",
-  `details => {kind, retryAfterSeconds}`) to `on_error`, else `warn`. Past
-  `max_retries` consecutive failures it stops first, then reports "giving up after N
-  retries". No `allowWatchBookmarks`, no informer cache.
+  a non-ERROR event on a stream resets the failure count (an ERROR event never
+  does; a 410 counts as an event for the empty-stream rule). Each failure is
+  reported — whatever `event_types` says — as a `Status` hashref (`reason =>
+  'WatchFailed'`, `code` = HTTP status, the ending ERROR event's code, or 0,
+  `message` "watch X failed, retrying in Ns: cause", `details => {kind,
+  retryAfterSeconds}`) to `on_error`, else `warn`. Past `max_retries` consecutive
+  failures it stops first, then reports "giving up after N retries". No
+  `allowWatchBookmarks`, no informer cache.
 - `start` is a no-op while watching or waiting on `_retry_future`, and resets the
   failure count. `stop` cancels a pending `_retry_future` and defers `$f->cancel` via
   `$loop->later` — cancelling inside the connection's own `on_read` triggers
