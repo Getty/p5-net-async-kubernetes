@@ -1,0 +1,20 @@
+---
+claimed_at: 2026-09-27T20:33:54Z
+claimed_by: backlog-4
+class: standard
+completed: 2026-09-27T20:33:46Z
+created: 2026-09-27T04:55:25Z
+id: 60
+priority: medium
+started: 2026-09-27T19:38:24Z
+status: done
+tags:
+- delete
+- api
+title: 'delete: propagationPolicy (DeleteOptions) unterstützen'
+updated: 2026-09-27T20:33:54Z
+---
+
+Wie kubernetes-rest k49: delete kann keinen propagationPolicy senden, gelöschte Jobs lassen ihre Pods verwaist zurück. Gebraucht von Kubernetes::Comb (Client::Async, restart/stop löschen Jobs). Wunsch: delete(..., propagationPolicy => "Background") und dasselbe beim Prunen in ensure_only.
+
+Commit 763f879bb90567335ee449c25be22c196d184a18
