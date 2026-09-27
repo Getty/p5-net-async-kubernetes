@@ -1,0 +1,21 @@
+---
+claimed_at: 2026-09-27T01:36:34Z
+claimed_by: nak-followups
+class: standard
+completed: 2026-09-27T01:36:34Z
+created: 2026-09-27T00:50:40Z
+id: 45
+priority: medium
+started: 2026-09-27T01:04:19Z
+status: done
+tags:
+- ensure
+title: 'ensure: Job/PVC-Erkennung und ensure_only-Gruppenschlüssel wie Kubernetes::REST'
+updated: 2026-09-27T01:36:34Z
+---
+
+Spiegelt kubernetes-rest k36 und k39. ensure erkennt Job und PVC über das Ende des Klassennamens; eine CRD mit Kind Job stirbt an status->succeeded, eine CRD mit Kind PersistentVolumeClaim wird still nicht aktualisiert. Ziel: exakt batch/v1 Job und core v1 PVC über apiVersion und Kind, Job-Status über TO_JSON statt Accessor. ensure_only-Schlüssel um die API-Gruppe erweitern, Version weiter ohne. Referenz: _api_version_and_kind und key_of in Kubernetes::REST auf fix/ensure-followups; der Helfer ist dort privat, also Logik spiegeln.
+
+Umgesetzt auf feat/status-ensure, uncommittet. Worker-Lauf prove -lr t/ Mock-Modus 30 Dateien 240 Tests PASS, dzil build sauber.
+
+Committed ed8e42d (Recognise ensure's PVC and Job special cases by apiVersion and Kind, key ensure_only by API group, k45). Verified in isolated worktree: prove -lr t/ mock mode, 29 files, 236 tests, PASS.
