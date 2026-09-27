@@ -1,0 +1,20 @@
+---
+claimed_at: 2026-09-27T21:52:49Z
+claimed_by: backlog-6
+class: standard
+completed: 2026-09-27T21:52:41Z
+created: 2026-09-27T21:04:57Z
+id: 66
+priority: low
+started: 2026-09-27T21:24:04Z
+status: done
+tags:
+- tests
+- compat
+title: 'Tests gegen gepinntes Kubernetes::REST 1.108: sauberes local::lib statt -I-Overlay'
+updated: 2026-09-27T21:52:49Z
+---
+
+Gefunden bei k59/k61 (2026-09-27). Die Prüfung gegen REST 1.108 per -I-Overlay (dep108) findet neuere Module aus der site lib (z. B. Kubernetes/REST/APIError.pm), t/39 brauchte einen Shim. Ein eigenes cpanm -L local::lib pro Pin (ohne site lib bzw. mit PERL5LIB-Isolation) als wiederholbares Skript unter maint/ ersetzt das.
+
+Commits 6569e54 (maint/prove-pinned.sh, CLAUDE.md, nak-worker.md, nak-core SKILL.md) and bf6e698 (t/42-mock-discover.t wording)
