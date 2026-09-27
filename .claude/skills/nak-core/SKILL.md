@@ -58,14 +58,13 @@ my ($class, $error) = $self->_resolve_class($name);        # or _object_class($l
 (my $path, $error) = $self->_request_path($class, $name_or_obj, name=>, namespace=>);
 return Future->fail($error) unless defined $path;             # croak in croaking methods
   → $rest->prepare_request(METHOD, $path, body=>, parameters=>, headers=>)
-  → $self->_do_request($req)
-  → ->then { $rest->check_response($res, "op class");
-              $rest->inflate_object/inflate_list($self->_exact_class($class), $res) }
+  → $self->_checked_request($req, "op class")      # _do_request + _checked_response
+  → ->then { $rest->inflate_object/inflate_list($self->_exact_class($class), $res) }
 ```
 
 Use only the public building blocks: `expand_class`, `build_path`, `prepare_request`,
-`check_response` (croaks on status ≥ 400 — inside `->then` that becomes a failed
-Future), `inflate_object`, `inflate_list`, `process_watch_chunk`, `process_log_chunk`,
+`check_response` (croaks on status ≥ 400; called only in `_checked_response`),
+`inflate_object`, `inflate_list`, `process_watch_chunk`, `process_log_chunk`,
 plus the documented `io` attribute. Never call `_`-prefixed Kubernetes::REST internals;
 where the client needs one's behaviour it keeps a private mirror of its own
 (`_unstructured_hint`, `_api_version_and_kind`, `_exact_class`).
@@ -95,8 +94,14 @@ contract. **Input errors known before any request croak synchronously** in
 `expand_class`, when a watcher starts, and in `update`, `update_status`, `ensure`
 (incl. `ensure_only`'s hashref resolution and missing `label`); every other
 Future-returning method returns `Future->fail($message)`. `ensure_all` never croaks —
-an `ensure` croak fails its chain. **Errors of the flow itself** (HTTP ≥ 400 via
-`check_response`, transport failures) are always failed Futures.
+an `ensure` croak fails its chain. **Errors of the flow itself** are always failed
+Futures: HTTP ≥ 400 → `_checked_response($response, $context)` →
+`Future->fail($err, 'http', $response)`, `$err` exactly what `check_response` throws
+(string up to 1.109, a `Kubernetes::REST::APIError` object where REST has that class —
+never rebuilt here); transport failures as the transport reports them. Every status
+check goes through `_checked_response` (`_checked_request` = `_do_request` + it), the
+unchecked `ensure`/`ensure_only` branches included; only the Watcher still calls
+`check_response` itself, for the cause text of its `WatchFailed` report.
 
 ### Unstructured and discovery
 

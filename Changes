@@ -159,6 +159,16 @@ Revision history for Net-Async-Kubernetes
    its new `propagationPolicy` option says otherwise (an unknown value
    croaks), and `ensure` deletes a failed Job with `Background` before
    recreating it.
+ - Fail Futures for a refusal of the API server (status 400 and up) the way
+   Future's convention has it: `->fail($error, 'http', $response)`. `$error`
+   is exactly what `Kubernetes::REST`'s `check_response` throws - the
+   message string as before, or a `Kubernetes::REST::APIError` object with a
+   Kubernetes::REST that has that class - and `$response` is the
+   `Kubernetes::REST::HTTPResponse`, so a 404 or a 409 can be told apart by
+   `$response->status` instead of by parsing the message, e.g. with
+   `->catch(http => sub { ... })`. This holds for every request method, a
+   streamed `log()`, `ensure` and `ensure_all`; the watcher still reports to
+   `on_error`.
 
 0.008     2026-09-22 04:13:56Z
  - Add public `rest` and `new_object($kind, %fields)` on the client: the

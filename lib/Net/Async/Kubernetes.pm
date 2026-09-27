@@ -529,8 +529,9 @@ sub list {
     my $rest = $self->_rest;
     return $self->_list_request($short_class, %args)->then(sub {
         my ($class, $response) = @_;
-        $rest->check_response($response, "list $short_class");
-        return Future->done($rest->inflate_list($self->_exact_class($class), $response));
+        return $self->_checked_response($response, "list $short_class")->then(sub {
+            return Future->done($rest->inflate_list($self->_exact_class($class), $response));
+        });
     });
 }
 
@@ -615,9 +616,8 @@ sub get {
     return Future->fail($error) unless defined $path;
     my $req = $rest->prepare_request('GET', $path);
 
-    return $self->_do_request($req)->then(sub {
+    return $self->_checked_request($req, "get $short_class")->then(sub {
         my ($response) = @_;
-        $rest->check_response($response, "get $short_class");
         return Future->done($rest->inflate_object($self->_exact_class($class), $response));
     });
 }
@@ -659,9 +659,8 @@ sub create {
     return Future->fail($error) unless defined $path;
     my $req = $rest->prepare_request('POST', $path, body => $object->TO_JSON);
 
-    return $self->_do_request($req)->then(sub {
+    return $self->_checked_request($req, "create " . ref($object))->then(sub {
         my ($response) = @_;
-        $rest->check_response($response, "create " . ref($object));
         return Future->done($rest->inflate_object($self->_exact_class($class), $response));
     });
 }
@@ -703,9 +702,8 @@ sub update {
     croak $error unless defined $path;
     my $req = $rest->prepare_request('PUT', $path, body => $object->TO_JSON);
 
-    return $self->_do_request($req)->then(sub {
+    return $self->_checked_request($req, "update " . ref($object))->then(sub {
         my ($response) = @_;
-        $rest->check_response($response, "update " . ref($object));
         return Future->done($rest->inflate_object($self->_exact_class($class), $response));
     });
 }
@@ -751,9 +749,8 @@ sub update_status {
     croak $error unless defined $path;
     my $req = $rest->prepare_request('PUT', $path, body => $object->TO_JSON);
 
-    return $self->_do_request($req)->then(sub {
+    return $self->_checked_request($req, "update_status $class")->then(sub {
         my ($response) = @_;
-        $rest->check_response($response, "update_status $class");
         return Future->done($rest->inflate_object($self->_exact_class($class), $response));
     });
 }
@@ -851,9 +848,8 @@ sub patch {
     my $req = $rest->prepare_request('PATCH', $path,
         body => $patch, content_type => $content_type);
 
-    return $self->_do_request($req)->then(sub {
+    return $self->_checked_request($req, "patch $class")->then(sub {
         my ($response) = @_;
-        $rest->check_response($response, "patch $class");
         return Future->done($rest->inflate_object($self->_exact_class($class), $response));
     });
 }
@@ -913,9 +909,8 @@ sub patch_status {
     my $req = $rest->prepare_request('PATCH', $path,
         body => $patch, content_type => $content_type);
 
-    return $self->_do_request($req)->then(sub {
+    return $self->_checked_request($req, "patch_status $class")->then(sub {
         my ($response) = @_;
-        $rest->check_response($response, "patch_status $class");
         return Future->done($rest->inflate_object($self->_exact_class($class), $response));
     });
 }
@@ -976,8 +971,9 @@ sub delete {
     my $rest = $self->_rest;
     return $self->_delete_request(@args)->then(sub {
         my ($class, $response) = @_;
-        $rest->check_response($response, "delete $class");
-        return Future->done(1);
+        return $self->_checked_response($response, "delete $class")->then(sub {
+            return Future->done(1);
+        });
     });
 }
 
@@ -1110,6 +1106,30 @@ sub _request_unchecked {
     return $self->_do_request($self->_rest->prepare_request($method, $path, %opts));
 }
 
+# The Future for a response: done with it when Kubernetes::REST's
+# check_response accepts it, failed the way Future's convention has it when
+# it does not (status >= 400) - ->fail($error, 'http', $response). $error is
+# exactly what check_response throws: the message string, or the error object
+# of a Kubernetes::REST that has one; $response lets a caller branch on
+# ->status (404 already gone, 409 conflict) instead of parsing the text.
+# $context names the operation in the message, as for check_response.
+sub _checked_response {
+    my ($self, $response, $context) = @_;
+    return Future->done($response)
+        if eval { $self->_rest->check_response($response, $context); 1 };
+    return Future->fail($@, http => $response);
+}
+
+# _do_request, then _checked_response: resolves with the response, or fails
+# as above.
+sub _checked_request {
+    my ($self, $req, $context) = @_;
+    return $self->_do_request($req)->then(sub {
+        my ($response) = @_;
+        return $self->_checked_response($response, $context);
+    });
+}
+
 # Shared hashref handling for ensure() and ensure_only(): turns a manifest into
 # a typed object. A manifest's apiVersion is authoritative - with one, the
 # class is resolved as that exact group/version/Kind, and an apiVersion no
@@ -1187,11 +1207,11 @@ sub ensure {
     # GET the object as the server has it now; $context names the step.
     my $fetch = sub {
         my ($context) = @_;
-        return $self->_request_unchecked('GET', $path)->then(sub {
-            my ($response) = @_;
-            $rest->check_response($response, "$context $kind/$name");
-            return Future->done($rest->inflate_object($self->_exact_class($class), $response));
-        });
+        return $self->_checked_request($rest->prepare_request('GET', $path), "$context $kind/$name")
+            ->then(sub {
+                my ($response) = @_;
+                return Future->done($rest->inflate_object($self->_exact_class($class), $response));
+            });
     };
 
     # PUT at the server's resourceVersion. A 409 means the object changed
@@ -1208,8 +1228,9 @@ sub ensure {
                     return $self->update($object);
                 });
             }
-            $rest->check_response($response, "update $class");
-            return Future->done($rest->inflate_object($self->_exact_class($class), $response));
+            return $self->_checked_response($response, "update $class")->then(sub {
+                return Future->done($rest->inflate_object($self->_exact_class($class), $response));
+            });
         });
     };
 
@@ -1245,16 +1266,18 @@ sub ensure {
             my ($response) = @_;
             return $fetch->('ensure post-409 get')->then($apply_to_existing)
                 if $response->status == 409;
-            $rest->check_response($response, "create $class");
-            return Future->done($rest->inflate_object($self->_exact_class($class), $response));
+            return $self->_checked_response($response, "create $class")->then(sub {
+                return Future->done($rest->inflate_object($self->_exact_class($class), $response));
+            });
         });
     };
 
     return $self->_request_unchecked('GET', $path)->then(sub {
         my ($response) = @_;
         return $create->() if $response->status == 404;
-        $rest->check_response($response, "ensure get $kind/$name");
-        return $apply_to_existing->($rest->inflate_object($self->_exact_class($class), $response));
+        return $self->_checked_response($response, "ensure get $kind/$name")->then(sub {
+            return $apply_to_existing->($rest->inflate_object($self->_exact_class($class), $response));
+        });
     });
 }
 
@@ -1431,9 +1454,8 @@ sub ensure_only {
             $self->_delete_request($item, propagationPolicy => $policy);
         })->then(sub {
             my ($class, $response) = @_;
-            $rest->check_response($response, "delete $class")
-                unless $response->status == 404;
-            return Future->done;
+            return Future->done if $response->status == 404;
+            return $self->_checked_response($response, "delete $class");
         })->else(sub {
             my ($error) = @_;
             my (undef, $kind) = $self->_api_version_and_kind($item);
@@ -1461,8 +1483,9 @@ sub ensure_only {
                     })->then(sub {
                         my ($class, $response) = @_;
                         return Future->done if $response->status == 404;
-                        $rest->check_response($response, "list $kind");
-                        return Future->done($rest->inflate_list($self->_exact_class($class), $response));
+                        return $self->_checked_response($response, "list $kind")->then(sub {
+                            return Future->done($rest->inflate_list($self->_exact_class($class), $response));
+                        });
                     })->else(sub {
                         my ($error) = @_;
                         carp "ensure_only: cannot list $kind " . $where->($namespace)
@@ -1618,7 +1641,8 @@ sub log {
             }
         })->then(sub {
             my ($response) = @_;
-            $rest->check_response($response, "log $short_class");
+            return $self->_checked_response($response, "log $short_class");
+        })->then(sub {
             if (length $buffer) {
                 $on_line->(Kubernetes::REST::LogEvent->new(line => $buffer));
             }
@@ -1629,9 +1653,8 @@ sub log {
     my $req = $rest->prepare_request('GET', $path,
         %params ? (parameters => \%params) : (),
     );
-    return $self->_do_request($req)->then(sub {
+    return $self->_checked_request($req, "log $short_class")->then(sub {
         my ($response) = @_;
-        $rest->check_response($response, "log $short_class");
         return Future->done($response->content);
     });
 }
@@ -2615,6 +2638,46 @@ C</var/run/secrets/kubernetes.io/serviceaccount/token> (automatic when
 running inside a Kubernetes pod)
 
 =back
+
+=head1 ERRORS
+
+The C<Future>-returning methods report every failure through the returned
+L<Future>:
+
+=over 4
+
+=item * Bad arguments -- an unknown resource, an object that is no
+Kubernetes resource, a missing name, an unknown option -- fail it with a
+message before any request is sent. L</expand_class>, L</update>,
+L</update_status>, L</ensure> and a watcher that starts croak instead, as
+each of them documents.
+
+=item * A response the API server refuses (status 400 and up) fails it
+following L<Future>'s convention for failure details:
+C<< ->fail($error, 'http', $response) >>. C<$error> is exactly what
+L<Kubernetes::REST/check_response> throws: a L<Kubernetes::REST::APIError>
+object with a L<Kubernetes::REST> that has that class, and the message
+string (C<Kubernetes API error (get Pod): 404 ...>) with one that does not.
+C<$response> is the L<Kubernetes::REST::HTTPResponse>, whose C<status>
+tells a C<404> from a C<409> without parsing the message:
+
+    $kube->delete('Pod', 'web', namespace => 'default')->catch(http => sub {
+        my ($error, $category, $response) = @_;
+        return Future->done if $response->status == 404;   # already gone
+        return Future->fail(@_);
+    })->get;
+
+L</ensure> and L</ensure_all> pass the failure of the request that failed
+on in the same form.
+
+=item * A request that gets no response at all (connection refused, a TLS
+error) fails it the way the HTTP transport reports it.
+
+=back
+
+A L<Net::Async::Kubernetes::Watcher> reports failures to its C<on_error>
+callback instead, with the HTTP status in the C<code> of the C<Status> it
+passes.
 
 =head1 SEE ALSO
 
