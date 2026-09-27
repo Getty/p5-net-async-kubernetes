@@ -58,6 +58,27 @@ Revision history for Net-Async-Kubernetes
    without `status` for a class that has no `status` attribute, now fail the
    Future instead of dying. The SYNOPSIS showed a call form that never
    worked and is fixed.
+ - Fix `Net::Async::Kubernetes::Watcher` retrying a failed watch request
+   silently, every second, forever. A request that fails (IO::Async::SSL
+   missing, a TLS or connection error, an unreachable API server) or that
+   the API server rejects (401, 403, 5xx) is now reported to `on_error` as
+   a Status hashref with `reason` `WatchFailed`, the HTTP status in `code`
+   (0 when no response arrived), the cause in `message` and the next delay
+   in `details.retryAfterSeconds`; without an `on_error` it is warned
+   about. Reconnects back off exponentially from `reconnect_delay` (1s) to
+   `max_reconnect_delay` (30s) and start over once a reconnect gets
+   through. The new `max_retries` (default: unlimited) stops the watcher
+   after that many consecutive failed retries and says so. `stop()` also
+   cancels a pending reconnect, and `start()` during one no longer opens a
+   second watch. A controller's `on_watch_error` receives these reports as
+   well. ERROR events and the 410 Gone handling are unchanged.
+ - Fix the streaming transport behind `log()` with `on_line` and behind the
+   watcher failing its Future at the end of every stream ("Can't call
+   method "code""): a streamed log failed after its last line, and a watch
+   cycle ending at its server-side timeout was taken for a connection
+   error and reconnected a second late. An error response is no longer
+   streamed either: its body reached `on_line` as a log line (and the
+   watcher as a bogus event) and now ends up in the failure message.
 
 0.008     2026-09-22 04:13:56Z
  - Add public `rest` and `new_object($kind, %fields)` on the client: the

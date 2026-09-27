@@ -172,6 +172,9 @@ subtest 'a resolvable resource is unaffected' => sub {
     # opens a real watch stream, so it stays in mock mode.
   SKIP: {
         skip 'watcher for a known resource would hit the cluster', 1 if is_live();
+        # Without it the mock fails the watch request, which the watcher now
+        # reports as a warning.
+        MockTransport::mock_watch_events('/api/v1/pods', []);
         my $watcher = $kube->watcher('Pod', on_event => sub { });
         ok($watcher, 'watcher for a known resource is created');
         $watcher->remove_from_parent;

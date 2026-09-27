@@ -473,12 +473,21 @@ past that keeps neither object alive.
 
 =item C<on_watch_error>
 
-Optional callback for C<ERROR> events from a registered watch, for example a
-C<403> arriving mid-stream. Receives C<($error, $ctx)>, where C<$error> is the
-raw error hashref the watcher reports and C<$ctx> carries C<controller>,
-C<kube>, and C<resource>. Error events are not reconcile objects, so they never
-enter the workqueue. An C<on_error> passed to C<watch_resource> takes
-precedence for that watch.
+Optional callback for errors of a registered watch: C<ERROR> events, for
+example a C<403> arriving mid-stream, and failed watch requests -- a
+transport error, or the API server rejecting the request -- which the watcher
+retries with backoff. Receives C<($error, $ctx)>, where C<$error> is the
+C<Status> hashref the watcher reports (see
+L<Net::Async::Kubernetes::Watcher/on_error>; a failed request has C<reason>
+C<WatchFailed>) and C<$ctx> carries C<controller>, C<kube>, and C<resource>.
+Errors are not reconcile objects, so they never enter the workqueue. An
+C<on_error> passed to C<watch_resource> takes precedence for that watch.
+Without either, the watcher C<warn>s about failed requests.
+
+The watcher's reconnect settings (C<reconnect_delay>, C<max_reconnect_delay>,
+C<max_retries>) are passed to C<watch_resource> with the other watcher
+arguments. A watch that gave up on C<max_retries> stays stopped; C<stop> and
+C<start> on the controller build it anew.
 
 =item C<retry_delay>
 

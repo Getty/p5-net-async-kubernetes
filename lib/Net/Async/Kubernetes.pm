@@ -1946,10 +1946,15 @@ sub _do_request {
     });
 }
 
+# Resolves with the response status and, for an error response (>= 400), its
+# body as content. An error body is the Status explaining the rejection, not
+# stream data: it never reaches $on_chunk, where it would pass for a watch
+# event or a log line, and is kept for the caller's check_response instead.
 sub _do_streaming_request {
     my ($self, $req, $on_chunk) = @_;
 
     my $uri = URI->new($req->url);
+    my $error_body = '';
 
     return $self->_http->do_request(
         method  => $req->method,
@@ -1957,11 +1962,19 @@ sub _do_streaming_request {
         headers => $req->headers,
         on_header => sub {
             my ($response) = @_;
+            my $is_error = $response->code >= 400;
             return sub {
+                # Called once more without arguments at the end of the body;
+                # what it returns is what the request Future resolves with.
+                return $response unless @_;
                 my ($chunk) = @_;
-                if (defined $chunk) {
+                return unless defined $chunk;
+                if ($is_error) {
+                    $error_body .= $chunk;
+                } else {
                     $on_chunk->($chunk);
                 }
+                return;
             };
         },
         $self->_ssl_options,
@@ -1969,7 +1982,7 @@ sub _do_streaming_request {
         my ($response) = @_;
         return Future->done(Kubernetes::REST::HTTPResponse->new(
             status  => $response->code,
-            content => '',
+            content => $error_body,
         ));
     });
 }
