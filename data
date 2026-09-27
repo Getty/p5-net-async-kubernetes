@@ -1,0 +1,20 @@
+---
+claimed_at: 2026-09-27T20:32:52Z
+claimed_by: backlog-4
+class: standard
+completed: 2026-09-27T20:32:44Z
+created: 2026-09-27T04:25:35Z
+id: 57
+priority: high
+started: 2026-09-27T19:38:05Z
+status: done
+tags:
+- ensure
+- safety
+title: Mit Kubernetes::REST 1.108 kann ensure_only in fremder Gruppe löschen
+updated: 2026-09-27T20:32:52Z
+---
+
+Mit dem gepinnten Kubernetes::REST 1.108 inflatiert inflate_list eine einteilige Klasse wie +Gizmo über den Kurzschlüssel neu; zeigt Gizmo auf eine andere Klasse, hält ensure_only fremde Items für eigene bzw. umgekehrt, in t/35 wurde so ein Istio-Gateway gelöscht. In Kubernetes::REST 1.109 über k42 behoben. Fix hier unabhängig vom Pin: an inflate_object, inflate_list und process_watch_chunk die Klasse mit Plus übergeben; mit 1.108 und 1.109 prüfen.
+
+Commit 0dfdc0b72d0b1dde35b20d741a764481e107f2d0
