@@ -25,10 +25,12 @@ Revision history for Net-Async-Kubernetes
    retrying a conflict once; an existing core v1 PersistentVolumeClaim and a
    running or succeeded batch/v1 Job are left alone, a failed one is
    replaced, and a custom resource reusing either Kind name is updated like
-   any other object. `ensure_all` applies its objects strictly one after
-   another. `ensure_only` then deletes every object with the given label
-   that it was not handed, matching by Kind, so a kinds entry written as
-   group/version/Kind does not delete the objects just applied. A kinds
+   any other object. An object that appears between the GET and the POST
+   (409 AlreadyExists) is handled the same way, so a Job is never PUT onto
+   its immutable Pod template. `ensure_all` applies its objects strictly one
+   after another. `ensure_only` then deletes every object with the given
+   label that it was not handed, matching by Kind, so a kinds entry written
+   as group/version/Kind does not delete the objects just applied. A kinds
    entry it cannot list in a namespace, or a stale object it cannot delete,
    is skipped with a warning naming the Kind, namespace, name and reason; a
    404 on either stays silent, and the Future still resolves to the applied

@@ -1064,31 +1064,9 @@ sub ensure {
         });
     };
 
-    # POST. A 409 means it was created by someone else after our GET: take
-    # that one (PVC) or update it at its resourceVersion, without a retry.
-    my $create = sub {
-        my $collection = $rest->build_path($class, namespace => $namespace,
-            @unstructured_hint);
-        return $self->_request_unchecked('POST', $collection, body => $object->TO_JSON)->then(sub {
-            my ($response) = @_;
-            if ($response->status == 409) {
-                return $fetch->('ensure post-409 get')->then(sub {
-                    my ($current) = @_;
-                    return Future->done($current) if $is_pvc;
-                    $metadata->resourceVersion($current->metadata->resourceVersion);
-                    return $self->update($object);
-                });
-            }
-            $rest->check_response($response, "create $class");
-            return Future->done($rest->inflate_object($class, $response));
-        });
-    };
-
-    return $self->_request_unchecked('GET', $path)->then(sub {
-        my ($response) = @_;
-        return $create->() if $response->status == 404;
-        $rest->check_response($response, "ensure get $kind/$name");
-        my $existing = $rest->inflate_object($class, $response);
+    # The object as the server has it, however ensure found out it exists.
+    my $apply_to_existing = sub {
+        my ($existing) = @_;
 
         # An existing claim is never rewritten.
         return Future->done($existing) if $is_pvc;
@@ -1107,6 +1085,28 @@ sub ensure {
         }
 
         return $replace->($existing);
+    };
+
+    # POST. A 409 means it was created by someone else after our GET: from
+    # there on it is an existing object like any other, special cases
+    # included - a Job must not get a PUT onto its immutable Pod template.
+    my $create = sub {
+        my $collection = $rest->build_path($class, namespace => $namespace,
+            @unstructured_hint);
+        return $self->_request_unchecked('POST', $collection, body => $object->TO_JSON)->then(sub {
+            my ($response) = @_;
+            return $fetch->('ensure post-409 get')->then($apply_to_existing)
+                if $response->status == 409;
+            $rest->check_response($response, "create $class");
+            return Future->done($rest->inflate_object($class, $response));
+        });
+    };
+
+    return $self->_request_unchecked('GET', $path)->then(sub {
+        my ($response) = @_;
+        return $create->() if $response->status == 404;
+        $rest->check_response($response, "ensure get $kind/$name");
+        return $apply_to_existing->($rest->inflate_object($class, $response));
     });
 }
 
@@ -1140,8 +1140,10 @@ L</expand_class> does.
 
 Handles the create/update race: a 409 on update (something else changed the
 object between GET and PUT) refetches once and retries the update; a 409 on
-create (something else created it between GET and POST) refetches and
-updates instead.
+create (something else created it between GET and POST) refetches it and
+handles it like an object that existed from the start -- updated, with the
+same one retry, or, for the two special cases below, returned unchanged or
+deleted and recreated.
 
 Two kinds get special handling because their spec is immutable after
 creation: an existing core C<v1> C<PersistentVolumeClaim> is left unchanged,
