@@ -26,8 +26,8 @@ use MockTransport;
 
 # Two resource classes whose class names end the same way but which are
 # different Kinds -- the shape IO::K8s::Unstructured has (one class, the Kind
-# as data). Unstructured itself cannot go through this client yet: without
-# the Kind hint it cannot build a path. kind() is defined before the APIObject
+# as data). Unstructured itself needs a discovery catalog to build a path;
+# t/32-mock-unstructured.t mocks one. kind() is defined before the APIObject
 # role is applied, so the role leaves it alone.
 BEGIN {
     package My::Test::Widget::Thing;

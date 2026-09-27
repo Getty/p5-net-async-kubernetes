@@ -23,9 +23,9 @@ use MockTransport;
 # group the applied one is in. The version stays out of the key (t/24, t/25).
 #
 # The real batch/v1 Job and core v1 PersistentVolumeClaim keep their special
-# cases; t/21-mock-ensure.t characterises those. IO::K8s::Unstructured cannot
-# go through this client yet -- without the Kind hint build_path has no path
-# for it (karr k41) -- so its instance-data branch is not exercised here.
+# cases; t/21-mock-ensure.t characterises those. IO::K8s::Unstructured needs
+# a discovery catalog to build a path, so its instance-data branch is
+# exercised in t/32-mock-unstructured.t, which mocks one.
 #
 # Mock-only: everything here is request routing, nothing needs a cluster.
 

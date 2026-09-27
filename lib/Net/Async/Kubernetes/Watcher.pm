@@ -335,6 +335,7 @@ sub _start_watch {
     croak $error unless defined $class;
     my $path = $rest->build_path($class,
         ($self->namespace ? (namespace => $self->namespace) : ()),
+        $self->kube->_unstructured_hint($class, $self->resource),
     );
 
     my %params = (

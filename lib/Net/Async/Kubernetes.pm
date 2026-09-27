@@ -124,8 +124,21 @@ sub resource_map_from_cluster { $_[0]->{resource_map_from_cluster} // 0 }
 
 =attr resource_map_from_cluster
 
-Optional boolean. Load resource map from cluster OpenAPI spec.
-Defaults to false.
+Optional boolean, defaults to false. When true, L<Kubernetes::REST> reads the
+cluster's discovery documents (C<GET /api>, C<GET /apis>) and, unless a
+L</resource_map> is given, builds the resource map from them. It fetches them
+once, on first use, through its own synchronous HTTP backend, not through
+this client's transport, so that first use blocks the loop.
+
+It also makes custom resources usable without a class of their own: a Kind
+that no IO::K8s class or C<resource_map> entry serves, but which discovery
+lists, resolves to L<IO::K8s::Unstructured>. Requests for it take the
+resource's plural and scope from discovery, and a qualified
+C<'group/version/Kind'> name stays in that group and version. An
+L<IO::K8s::Unstructured> object handed to L</create>, L</update>,
+L</ensure> or another object form is addressed the same way, by its own
+C<kind> and C<apiVersion> -- without this option there is no discovery to
+find its path in.
 
 =cut
 
@@ -297,7 +310,7 @@ sub _resolve_class {
 # resource without a class-level api_version - its Kind is instance data -
 # so, reached any other way than its own bare name 'Unstructured' (above all
 # through Kubernetes::REST's discovery fallback for a Kind), it is passed on
-# to build_path, which needs the Kind from the caller for it (karr k41).
+# to build_path, which gets the Kind from _unstructured_hint.
 sub _usable_class {
     my ($self, $name, $class) = @_;
     my $rest = $self->_rest;
@@ -334,6 +347,37 @@ sub _object_class {
     return (undef, "$label requires an IO::K8s object") unless blessed($object);
     my ($class, $error) = $self->_usable_class(ref($object), ref($object));
     return defined $class ? $class : (undef, "$label: $error");
+}
+
+# The extra build_path arguments for a class that resolved to
+# IO::K8s::Unstructured - empty for every other class, whose path comes from
+# the class alone. Unstructured has no class-level api_version: its Kind and
+# apiVersion are instance data, so build_path takes them from the caller and
+# looks plural and scope up in Kubernetes::REST's discovery catalog. $ident is
+# what the class came from. An object gives its own kind and apiVersion. A
+# name is split the way Kubernetes::REST's expand_class splits it: a qualified
+# 'example.org/v1/Widget' keeps its group and version, instead of landing in
+# whichever group serving a Widget discovery lists first, and an explicit
+# class name ('+...', 'IO::K8s::...', any '...::...') carries no Kind. Mirrors
+# the private helper of the same name in Kubernetes::REST, which is not part
+# of its public seam.
+sub _unstructured_hint {
+    my ($self, $class, $ident) = @_;
+    return () unless defined $class && $class eq 'IO::K8s::Unstructured';
+    my ($kind, $api_version);
+    if (blessed($ident)) {
+        ($kind, $api_version) = ($ident->kind, $ident->apiVersion);
+    } elsif (defined $ident && !ref $ident && $ident !~ m{\A(?:\+|IO::K8s::)}) {
+        if ($ident =~ m{/}) {
+            ($api_version, $kind) = $ident =~ m{\A(.*)/([^/]+)\z};
+        } elsif ($ident !~ /::/) {
+            $kind = $ident;
+        }
+    }
+    return (
+        (defined $kind        ? (kind        => $kind)        : ()),
+        (defined $api_version ? (api_version => $api_version) : ()),
+    );
 }
 
 sub expand_class {
@@ -403,7 +447,8 @@ sub list {
         $params{$selector} = $value if defined $value;
     }
 
-    my $path = $rest->build_path($class, %args);
+    my $path = $rest->build_path($class, %args,
+        $self->_unstructured_hint($class, $short_class));
     my $req = $rest->prepare_request('GET', $path,
         %params ? (parameters => \%params) : (),
     );
@@ -465,7 +510,8 @@ sub get {
     return Future->fail($error) unless defined $class;
     return Future->fail("name required for get") unless $args{name};
 
-    my $path = $rest->build_path($class, %args);
+    my $path = $rest->build_path($class, %args,
+        $self->_unstructured_hint($class, $short_class));
     my $req = $rest->prepare_request('GET', $path);
 
     return $self->_do_request($req)->then(sub {
@@ -508,7 +554,8 @@ sub create {
         ? $object->metadata->namespace
         : undef;
 
-    my $path = $rest->build_path($class, namespace => $namespace);
+    my $path = $rest->build_path($class, namespace => $namespace,
+        $self->_unstructured_hint($class, $object));
     my $req = $rest->prepare_request('POST', $path, body => $object->TO_JSON);
 
     return $self->_do_request($req)->then(sub {
@@ -550,7 +597,8 @@ sub update {
     my $name = $metadata->name or croak "object must have metadata.name";
     my $namespace = $metadata->namespace;
 
-    my $path = $rest->build_path($class, name => $name, namespace => $namespace);
+    my $path = $rest->build_path($class, name => $name, namespace => $namespace,
+        $self->_unstructured_hint($class, $object));
     my $req = $rest->prepare_request('PUT', $path, body => $object->TO_JSON);
 
     return $self->_do_request($req)->then(sub {
@@ -597,6 +645,7 @@ sub update_status {
         name        => $name,
         namespace   => $namespace,
         subresource => 'status',
+        $self->_unstructured_hint($class, $object),
     );
     my $req = $rest->prepare_request('PUT', $path, body => $object->TO_JSON);
 
@@ -694,7 +743,8 @@ sub patch {
         = $self->_patch_args('patch', 'strategic', $class_or_object, @rest_args);
     return Future->fail($error) if defined $error;
 
-    my $path = $rest->build_path($class, name => $name, namespace => $namespace);
+    my $path = $rest->build_path($class, name => $name, namespace => $namespace,
+        $self->_unstructured_hint($class, $class_or_object));
     my $req = $rest->prepare_request('PATCH', $path,
         body => $patch, content_type => $content_type);
 
@@ -754,6 +804,7 @@ sub patch_status {
         name        => $name,
         namespace   => $namespace,
         subresource => 'status',
+        $self->_unstructured_hint($class, $class_or_object),
     );
     my $req = $rest->prepare_request('PATCH', $path,
         body => $patch, content_type => $content_type);
@@ -847,7 +898,8 @@ sub delete {
         $namespace = $args{namespace};
     }
 
-    my $path = $rest->build_path($class, name => $name, namespace => $namespace);
+    my $path = $rest->build_path($class, name => $name, namespace => $namespace,
+        $self->_unstructured_hint($class, $class_or_object));
     my $req = $rest->prepare_request('DELETE', $path);
 
     return $self->_do_request($req)->then(sub {
@@ -958,7 +1010,9 @@ sub ensure {
     my $metadata = $object->metadata or croak "object must have metadata";
     my $name = $metadata->name or croak "object must have metadata.name";
     my $namespace = $metadata->namespace;
-    my $path = $rest->build_path($class, name => $name, namespace => $namespace);
+    my @unstructured_hint = $self->_unstructured_hint($class, $object);
+    my $path = $rest->build_path($class, name => $name, namespace => $namespace,
+        @unstructured_hint);
 
     # GET the object as the server has it now; $context names the step.
     my $fetch = sub {
@@ -992,7 +1046,8 @@ sub ensure {
     # POST. A 409 means it was created by someone else after our GET: take
     # that one (PVC) or update it at its resourceVersion, without a retry.
     my $create = sub {
-        my $collection = $rest->build_path($class, namespace => $namespace);
+        my $collection = $rest->build_path($class, namespace => $namespace,
+            @unstructured_hint);
         return $self->_request_unchecked('POST', $collection, body => $object->TO_JSON)->then(sub {
             my ($response) = @_;
             if ($response->status == 409) {
@@ -1301,7 +1356,8 @@ sub log {
 
     my ($class, $error) = $self->_resolve_class($short_class);
     return Future->fail($error) unless defined $class;
-    my $path = $rest->build_path($class, %args) . '/log';
+    my $path = $rest->build_path($class, %args,
+        $self->_unstructured_hint($class, $short_class)) . '/log';
 
     my %params;
     $params{container}    = $container     if defined $container;
@@ -1409,7 +1465,8 @@ sub port_forward {
 
     my ($class, $error) = $self->_resolve_class($short_class);
     return Future->fail($error) unless defined $class;
-    my $path = $rest->build_path($class, %args) . '/portforward';
+    my $path = $rest->build_path($class, %args,
+        $self->_unstructured_hint($class, $short_class)) . '/portforward';
 
     # Keep compatibility with Kubernetes::REST >= 1.100 by expanding repeated
     # ports query params here instead of relying on arrayref parameter support.
@@ -1504,7 +1561,8 @@ sub exec {
 
     my ($class, $error) = $self->_resolve_class($short_class);
     return Future->fail($error) unless defined $class;
-    my $path = $rest->build_path($class, %args) . '/exec';
+    my $path = $rest->build_path($class, %args,
+        $self->_unstructured_hint($class, $short_class)) . '/exec';
 
     my %params = (
         command => $command,
@@ -1595,7 +1653,8 @@ sub attach {
 
     my ($class, $error) = $self->_resolve_class($short_class);
     return Future->fail($error) unless defined $class;
-    my $path = $rest->build_path($class, %args) . '/attach';
+    my $path = $rest->build_path($class, %args,
+        $self->_unstructured_hint($class, $short_class)) . '/attach';
 
     my %params = (
         stdin   => $stdin  ? 'true' : 'false',
