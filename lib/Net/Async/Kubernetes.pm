@@ -138,9 +138,18 @@ sub resource_map_from_cluster { $_[0]->{resource_map_from_cluster} // 0 }
 
 Optional boolean, defaults to false. When true, L<Kubernetes::REST> reads the
 cluster's discovery documents (C<GET /api>, C<GET /apis>) and, unless a
-L</resource_map> is given, builds the resource map from them. It fetches them
-once, on first use, through its own synchronous HTTP backend, not through
-this client's transport, so that first use blocks the loop.
+L</resource_map> is given, builds the resource map from them. Left to itself
+it fetches them once, on first use, through its own synchronous HTTP backend,
+not through this client's transport, so that first use blocks the loop.
+Await L</discover> once at start-up to have them read through this client's
+transport instead:
+
+    my $kube = Net::Async::Kubernetes->new(
+        kubeconfig                => "$ENV{HOME}/.kube/config",
+        resource_map_from_cluster => 1,
+    );
+    $loop->add($kube);
+    $kube->discover->get;
 
 It also makes custom resources usable without a class of their own: a Kind
 that no IO::K8s class or C<resource_map> entry serves, but which discovery
@@ -542,6 +551,80 @@ C<IO::K8s::List> that a bare C<'List'> lands on -- croaks as not being a
 Kubernetes resource class. This is the synchronous counterpart of the
 C<Future>-returning methods below, which report the same conditions as a
 failed L<Future> with the same message.
+
+=cut
+
+sub discover {
+    my ($self) = @_;
+
+    my $rest = $self->_rest;
+    return Future->done unless $self->resource_map_from_cluster;
+
+    # Kubernetes::REST before the seam (1.108) reads discovery only through its
+    # own synchronous io: that read, now instead of on first use.
+    unless ($rest->can('prepare_discovery_requests') && $rest->can('absorb_discovery')) {
+        return Future->call(sub {
+            $rest->fetch_resource_map;
+            return Future->done;
+        });
+    }
+
+    my %requests = $rest->prepare_discovery_requests;
+    my @roots = sort keys %requests;
+    return Future->needs_all(
+        map { $self->_checked_request($requests{$_}, "discovery GET $_") } @roots
+    )->then(sub {
+        my %responses;
+        @responses{@roots} = @_;
+        # False for legacy discovery: nothing is kept, and Kubernetes::REST
+        # reads it through its own io on first use, as without discover.
+        $rest->absorb_discovery(%responses);
+        return Future->done;
+    });
+}
+
+=method discover
+
+    $kube->discover->get;    # once, at start-up
+
+Reads the cluster's discovery documents (C<GET /api>, C<GET /apis>) through
+this client's own asynchronous transport and hands them to
+L<Kubernetes::REST>, which then resolves names -- a Kind only the cluster
+serves included (see L</resource_map_from_cluster>) -- and builds its
+resource map from them without a request of its own. Returns a L<Future>
+that resolves, with no value, once that is done.
+
+With L</resource_map_from_cluster> on, await it once at start-up, before the
+first request: otherwise L<Kubernetes::REST> reads discovery itself on first
+use, through its synchronous HTTP backend, and that first use blocks the
+loop. No other method calls C<discover> for you. Calling it again reads
+discovery anew and replaces what was read before -- after installing a
+CustomResourceDefinition, for example.
+
+=over 4
+
+=item * Without L</resource_map_from_cluster> there is no discovery to read:
+the L<Future> is done at once and nothing is sent.
+
+=item * A cluster older than Kubernetes 1.27 answers with legacy discovery,
+which takes a further request per API group and version.
+L<Kubernetes::REST> keeps nothing of it; the L<Future> is done all the same,
+and discovery is read synchronously on first use, as without C<discover>.
+
+=item * An error status (C<401>, C<403>, C<5xx>) fails the L<Future> as
+described in L</ERRORS>, C<< ->fail($error, 'http', $response) >>. A request
+that gets no response fails it the way the transport reports it, and a
+document that cannot be read (not JSON) with the reason.
+
+=item * A L<Kubernetes::REST> without the methods this takes
+(C<prepare_discovery_requests>, C<absorb_discovery> -- 1.108 has neither)
+reads discovery through its synchronous backend right away instead, blocking
+the loop once, and C<discover> resolves when it has; a failure fails the
+L<Future> with its message. Calling it is therefore always safe. Called
+again, it does not read anew: that L<Kubernetes::REST> keeps what it read
+until its C<invalidate_discovery>.
+
+=back
 
 =cut
 

@@ -7,8 +7,9 @@ description: Load before editing Net::Async::Kubernetes — the Kubernetes::REST
 
 Async Kubernetes client on IO::Async. `Kubernetes::REST` is used as
 request-builder/response-inflater; its own `io` backend never carries a request —
-except discovery (see `resource_map_from_cluster` below). `IO::K8s` provides the typed
-objects. `$VERSION` is hand-written in every module; dzil bumps it.
+except discovery when `discover` did not read it first (see
+`resource_map_from_cluster` below). `IO::K8s` provides the typed objects. `$VERSION`
+is hand-written in every module; dzil bumps it.
 
 ## Classes
 
@@ -22,7 +23,8 @@ objects. `$VERSION` is hand-written in every module; dzil bumps it.
   `.../status`, whole object) → inflated object, `delete` → `1` (`propagationPolicy`
   Background|Foreground|Orphan as query parameter; any other value or unknown option key
   fails the Future), `ensure` → object,
-  `ensure_all` → objects in input order, `ensure_only` → the applied objects, `log` →
+  `ensure_all` → objects in input order, `ensure_only` → the applied objects,
+  `discover` → nothing (see Unstructured and discovery), `log` →
   full text or `undef` with `on_line`, `port_forward`/`exec`/`attach` → session,
   `cp_to_pod`/`cp_from_pod` → `{local,remote,bytes,stderr,status}`. Non-Future:
   `rest` (the lazy `Kubernetes::REST`), `new_object`, `expand_class`, `watcher(...)`,
@@ -109,8 +111,18 @@ unchecked `ensure`/`ensure_only` branches included; only the Watcher still calls
 
 - `resource_map_from_cluster => 1`: Kubernetes::REST fetches discovery (`GET /api`,
   `GET /apis`) **through its own synchronous `io`** (LWP by default), once, on first
-  use — it blocks the loop and bypasses `_do_request`. Its map resolves shipped Kinds;
-  a Kind discovery lists but nothing ships resolves to `IO::K8s::Unstructured`.
+  use — it blocks the loop and bypasses `_do_request` — unless `discover` ran first.
+  Its map resolves shipped Kinds; a Kind discovery lists but nothing ships resolves
+  to `IO::K8s::Unstructured`.
+- `discover` (k59, never called implicitly): off without `resource_map_from_cluster`
+  (done, nothing sent). With REST's seam (`can` both `prepare_discovery_requests`
+  and `absorb_discovery`, REST > 1.108): both requests through `_checked_request`
+  (`needs_all`; ≥ 400 → `fail($err, 'http', $response)`), then `absorb_discovery`
+  inside `then` (a croak — bad JSON — fails the Future); `absorb_discovery` false =
+  legacy discovery, still done, REST reads it synchronously on first use. Without the
+  seam (1.108): `fetch_resource_map` inside `Future->call` — blocking, cached, a
+  second call reads nothing anew. Test: `t/42` (recording REST io; a REST subclass
+  hiding the seam via `can` runs the fallback on any REST).
 - Unstructured has no class-level api_version; `build_path` needs `kind` (and
   `api_version`) from the caller and takes plural and scope from the discovery catalog.
   `build_path` is called in one place only, `_request_path($class, $ident, %args)`

@@ -190,6 +190,19 @@ Revision history for Net-Async-Kubernetes
    bundles such as `IO::K8s::GatewayAPI`), passed on to `Kubernetes::REST`,
    so their Kinds resolve to typed classes in names, lists, watches and
    `new_object`.
+ - Add `discover()`, which reads the cluster's discovery documents
+   (`GET /api`, `GET /apis`) through the client's own asynchronous
+   transport and hands them to `Kubernetes::REST`, so names and the
+   resource map resolve without a request of its own. With
+   `resource_map_from_cluster`, `Kubernetes::REST` otherwise reads them on
+   first use through its synchronous HTTP backend, blocking the loop; await
+   `discover` once at start-up to avoid that. It takes a `Kubernetes::REST`
+   that has `prepare_discovery_requests` and `absorb_discovery`; with 1.108,
+   which has neither, it runs that synchronous read right away instead, so
+   it can always be called. An error status fails the Future with category
+   `http` and the response; legacy discovery (Kubernetes before 1.27) is
+   left to the synchronous read on first use; without
+   `resource_map_from_cluster` nothing is sent.
 
 0.008     2026-09-22 04:13:56Z
  - Add public `rest` and `new_object($kind, %fields)` on the client: the
