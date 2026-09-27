@@ -1,0 +1,22 @@
+---
+claimed_at: 2026-09-27T00:00:50Z
+claimed_by: status-ensure
+class: standard
+completed: 2026-09-27T00:00:50Z
+created: 2026-09-26T21:24:04Z
+id: 34
+priority: high
+started: 2026-09-26T21:24:36Z
+status: done
+tags:
+- api
+- status
+title: patch_status und update_status für das /status-Subresource
+updated: 2026-09-27T00:00:50Z
+---
+
+Aus hi-proto (HI::Comb::Controller schreibt Status per _request PUT/PATCH am Client vorbei). Kubernetes::REST 1.108 hat patch_status und update_status, der Async-Client nicht. Done: patch_status (gleiche Aufrufformen wie patch, Default-Typ merge) und update_status (PUT des ganzen Objekts auf /status) liefern ein Future auf das inflatierte Objekt; Pfad über build_path mit subresource status; Mock-Tests für Pfad, Methode, Content-Type, Body und Fehlerfall.
+
+Umgesetzt auf feat/status-ensure, uncommittet. prove -lr t/ im Mock-Modus 26 Dateien 214 Tests PASS, dzil build sauber, gebaute Suite PASS. Wartet auf Commit durch nak-release-manager.
+
+2026-09-27 00:00 Committed as 8081bef on feat/status-ensure: update_status and patch_status added via shared _patch_args helper, POD added, t/20-mock-status.t added, Changes entry added. Verified in isolated worktree: prove -lr t/ mock mode, 23 files, 187 tests, PASS.
