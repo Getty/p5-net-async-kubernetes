@@ -260,6 +260,31 @@ subtest 'a rejected watch request (HTTP 403) is a failed attempt' => sub {
     $watcher->stop;
 };
 
+# karr k53: the real transport never streams the body of a rejected request -
+# it keeps it for check_response (k33). The mock does the same: events
+# registered for a watch answered with an error status are not delivered.
+subtest 'a rejected watch request delivers no events, only its error body' => sub {
+    my $kube = make_kube();
+    MockTransport::mock_watch_events($PATH, [$added_event], { status => 403 });
+
+    my (@errors, @added);
+    my $watcher = $kube->watcher('Pod',
+        namespace => 'default',
+        on_added  => sub { push @added, $_[0]->metadata->name },
+        on_error  => sub { push @errors, $_[0] },
+    );
+    settle();
+
+    is_deeply(\@added, [], 'the registered event is not delivered');
+    is(scalar @errors, 1, 'the rejection is reported, without complete => 1');
+    is($errors[0] && $errors[0]{code}, 403, 'code carries the HTTP status');
+    like($errors[0] && $errors[0]{message},
+        qr/Kubernetes API error \(watch Pod\): 403 \{.*"code":403/,
+        'the cause carries the Status error body');
+    is_deeply(delays(), [1], 'retried after the reconnect delay');
+    $watcher->stop;
+};
+
 subtest 'without on_error a failed watch request warns' => sub {
     my $kube = make_kube();
     MockTransport::mock_watch_events($PATH, [], { fail => 'Connection refused' });

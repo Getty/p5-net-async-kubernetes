@@ -81,6 +81,13 @@ sub mock_response_queue {
 # mock_watch_events('/api/v1/pods', [ { type => 'ADDED', object => {...} }, ... ]);
 # mock_watch_events('/api/v1/pods', [...], { complete => 1 });       # resolve after events
 # mock_watch_events('/api/v1/pods', [...], { fail => 'some error' }); # fail after events
+# mock_watch_events('/api/v1/pods', [...], { status => 403 });       # rejected, see below
+#
+# An error status (>= 400) is a rejected request, as the real
+# _do_streaming_request has it since karr k33: nothing is streamed - the
+# registered events are not delivered - and the request resolves, with or
+# without complete, with that status and a Status error body for
+# check_response. fail still fails it instead.
 
 sub mock_watch_events {
     my ($path, $events, $opts) = @_;
@@ -92,6 +99,8 @@ sub mock_watch_events {
 # mock_stream_chunks('/api/v1/namespaces/default/pods/x/log', [ "line1\n", "line2\n" ]);
 # mock_stream_chunks('/api/v1/namespaces/default/pods/x/log', [...], { complete => 1 });
 # mock_stream_chunks('/api/v1/namespaces/default/pods/x/log', [...], { fail => 'some error' });
+# mock_stream_chunks('/api/v1/namespaces/default/pods/x/log', [...], { status => 404 });
+# An error status streams no chunks either, as for mock_watch_events.
 sub mock_stream_chunks {
     my ($path, $chunks, $opts) = @_;
     $stream_chunks{$path} = $chunks;
@@ -101,6 +110,26 @@ sub mock_stream_chunks {
 sub mock_duplex_session {
     my ($session) = @_;
     $duplex_session = $session;
+}
+
+# A streaming request the API server rejected with $status: one tick later
+# $f resolves with that status and a Status error body - nothing reaches the
+# chunk callback, as with the real transport - or fails with $fail.
+sub _rejected_stream {
+    my ($kube, $f, $path, $status, $fail) = @_;
+    $kube->loop->later(sub {
+        return if $f->is_cancelled;
+        return $f->fail($fail) if $fail;
+        $f->done(Kubernetes::REST::HTTPResponse->new(
+            status  => $status,
+            content => $json->encode({
+                kind => 'Status', apiVersion => 'v1', status => 'Failure',
+                message => "Mock: $path answers $status",
+                code => $status,
+            }),
+        ));
+    });
+    return $f;
 }
 
 # Install the mock transport on a Net::Async::Kubernetes instance.
@@ -191,6 +220,9 @@ sub install {
             my $opts = $watch_opts{$path} || {};
             my $status = $opts->{status} // 200;
 
+            return _rejected_stream($self, $f, $path, $status, $opts->{fail})
+                if $status >= 400;
+
             if (@$events || $opts->{complete} || $opts->{fail}) {
                 # Deliver all events in one tick (like a real chunked response).
                 # Don't check cancellation between events - the watcher's chunk
@@ -220,6 +252,9 @@ sub install {
             my $f = $self->loop->new_future;
             my $opts = $stream_opts{$path} || {};
             my $status = $opts->{status} // 200;
+
+            return _rejected_stream($self, $f, $path, $status, $opts->{fail})
+                if $status >= 400;
 
             $self->loop->later(sub {
                 for my $chunk (@$chunks) {

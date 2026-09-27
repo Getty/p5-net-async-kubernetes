@@ -118,8 +118,10 @@ subtest 'every request method fails with category http and the response' => sub 
 
 subtest 'a streamed log refused by the API server fails the same way' => sub {
     my $kube = make_kube();
+    # The chunks are not streamed at an error status (karr k53), as the real
+    # transport keeps an error body for check_response.
     MockTransport::mock_stream_chunks('/api/v1/namespaces/default/pods/p1/log',
-        [], { status => 403 });
+        [ "not a log line\n" ], { status => 403 });
     my @lines;
     my $f = $kube->log('Pod', 'p1', namespace => 'default', follow => 1,
         on_line => sub { push @lines, $_[0] });

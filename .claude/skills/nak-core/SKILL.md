@@ -302,7 +302,9 @@ or a live one from the kubeconfig; both added to the process-wide memoized `loop
   back to `mock_response`/404 — for 409 races and retries. Unregistered → 404 Status.
   `mock_watch_events($path,\@events,\%opts)` (`complete` ⇒ resolve → reconnect;
   `fail` ⇒ backoff retry; `status` ⇒ response code; no opts ⇒ pending until `stop`);
-  `mock_stream_chunks` for `log()`; `mock_duplex_session`. Streaming/duplex paths are
+  `mock_stream_chunks` for `log()`; `mock_duplex_session`. A `status` ≥ 400 on either
+  is a rejection, as on the real transport: nothing reaches the chunk callback, the
+  request resolves (no `complete` needed) with a Status error body. Streaming/duplex paths are
   matched **without** query string. Inspect via `last_request()`/`request_log()`.
 - Discovery in mock mode (`t/32-mock-unstructured.t`): a client subclass overrides
   `rest` to build the `Kubernetes::REST` with an `io` (consumes
