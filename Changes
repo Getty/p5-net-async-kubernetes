@@ -169,6 +169,17 @@ Revision history for Net-Async-Kubernetes
    `->catch(http => sub { ... })`. This holds for every request method, a
    streamed `log()`, `ensure` and `ensure_all`; the watcher still reports to
    `on_error`.
+ - Fix the constructor swallowing why a `context` given without `kubeconfig`
+   could not be used: a context missing from the default kubeconfig, or no
+   kubeconfig at all outside a cluster, was ignored and surfaced as "server
+   or kubeconfig required" on the first request. The constructor now croaks
+   with the reason (`Context not found: ...`), as it does for an explicit
+   `kubeconfig`; without a context, a failed auto-detection stays silent as
+   before.
+ - Add the `with` constructor option: IO::K8s resource-map providers (CRD
+   bundles such as `IO::K8s::GatewayAPI`), passed on to `Kubernetes::REST`,
+   so their Kinds resolve to typed classes in names, lists, watches and
+   `new_object`.
 
 0.008     2026-09-22 04:13:56Z
  - Add public `rest` and `new_object($kind, %fields)` on the client: the

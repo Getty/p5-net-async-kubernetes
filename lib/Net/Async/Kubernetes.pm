@@ -54,6 +54,9 @@ sub configure {
     if (exists $params{resource_map_from_cluster}) {
         $self->{resource_map_from_cluster} = delete $params{resource_map_from_cluster};
     }
+    if (exists $params{with}) {
+        $self->{with} = delete $params{with};
+    }
 
     # Resolve server/credentials via Kubeconfig (handles kubeconfig files
     # and in-cluster service account auto-detection)
@@ -63,8 +66,10 @@ sub configure {
             ($self->{kubeconfig} ? (kubeconfig_path => $self->{kubeconfig}) : ()),
             ($self->{context}    ? (context_name    => $self->{context})    : ()),
         );
-        if ($self->{kubeconfig}) {
-            # Explicit kubeconfig — must resolve or croak
+        if ($self->{kubeconfig} || $self->{context}) {
+            # Explicit kubeconfig or context — must resolve or croak with the
+            # reason; swallowed, it would only resurface as "server or
+            # kubeconfig required" on first use.
             my $api = $kc->api;
             $self->{server}      = $api->server;
             $self->{credentials} = $api->credentials;
@@ -82,10 +87,13 @@ sub configure {
 
 Internal L<IO::Async::Notifier> configuration method. Handles initialization
 of C<kubeconfig>, C<context>, C<server>, C<credentials>, C<resource_map>,
-and C<resource_map_from_cluster> parameters.
+C<resource_map_from_cluster> and C<with> parameters.
 
 If C<kubeconfig> is provided without explicit C<server> or C<credentials>,
-they are loaded automatically via L<Kubernetes::REST::Kubeconfig>.
+they are loaded automatically via L<Kubernetes::REST::Kubeconfig>. So are
+they for a C<context> without C<kubeconfig>, from the default kubeconfig.
+Either way a kubeconfig or context that cannot be resolved croaks with the
+reason (a missing file, C<Context not found: ...>).
 
 When running inside a Kubernetes pod (no C<kubeconfig> or C<server> set),
 the service account token at
@@ -109,6 +117,10 @@ sub context                  { $_[0]->{context} }
 =attr context
 
 Kubernetes context to use from the kubeconfig. Defaults to current-context.
+Without L</kubeconfig> it is looked up in the default kubeconfig
+(C<KUBECONFIG>, else F<~/.kube/config>); when it is not found there, or
+there is no kubeconfig at all and no in-cluster service account either, the
+constructor croaks with the reason.
 
 =cut
 
@@ -156,6 +168,24 @@ croak with it instead, as they do for their other argument errors.
 
 =cut
 
+sub with                     { $_[0]->{with} // [] }
+
+=attr with
+
+Optional arrayref of L<IO::K8s> resource-map providers (CRD bundles),
+passed on to L<Kubernetes::REST/with>, so their Kinds resolve to typed
+classes -- in names, lists, watches and L</new_object>:
+
+    my $kube = Net::Async::Kubernetes->new(
+        kubeconfig => "$ENV{HOME}/.kube/config",
+        with       => ['IO::K8s::GatewayAPI'],
+    );
+    my $gateways = $kube->list('Gateway', namespace => 'default')->get;
+
+Defaults to C<[]>. See L<IO::K8s/with> for the accepted provider forms.
+
+=cut
+
 sub server {
     my ($self) = @_;
     $self->{server} // croak "server or kubeconfig required";
@@ -188,6 +218,7 @@ sub rest {
         credentials => $self->credentials,
         resource_map_from_cluster => $self->resource_map_from_cluster,
         ($self->resource_map ? (resource_map => $self->resource_map) : ()),
+        with        => $self->with,
     );
 }
 

@@ -14,7 +14,8 @@ objects. `$VERSION` is hand-written in every module; dzil bumps it.
 
 - **`Net::Async::Kubernetes`** (`lib/.../Kubernetes.pm`) — IO::Async::Notifier. Config:
   `kubeconfig`, `context`, `server`, `credentials`, `resource_map`,
-  `resource_map_from_cluster` (default 0). Public API (all returning Futures unless
+  `resource_map_from_cluster` (default 0), `with` (CRD providers, passed to
+  `Kubernetes::REST->new(with =>)`, public there since 1.108). Public API (all returning Futures unless
   noted): `list` → `IO::K8s::List` (use `->items`!; `labelSelector`/`fieldSelector`
   go out as query parameters), `get`/`create`/`update`/`patch` → inflated object,
   `patch_status` (PATCH `.../status`, default type `merge`) / `update_status` (PUT
@@ -269,9 +270,11 @@ croaks with.
 ## TLS / auth
 
 - Config resolution: explicit `server`/`credentials` win; else
-  `Kubernetes::REST::Kubeconfig` (explicit `kubeconfig` → croaks at construct on bad
-  file; auto-detection → silent eval, errors surface later as croaking accessors);
-  else in-cluster SA token.
+  `Kubernetes::REST::Kubeconfig` (explicit `kubeconfig` or `context` → croaks at
+  construct with the reason, e.g. `Context not found: x`; auto-detection without
+  either → silent eval, errors surface later as croaking accessors); else in-cluster
+  SA token (`Kubeconfig->api` falls back to it when no kubeconfig file exists, even
+  with a context).
 - `_ssl_options` computed **once and cached**, splatted flat into every request and
   connect: `SSL_verify_mode` from `ssl_verify_server`, `SSL_{ca,cert,key}_file`
   pass-through; inline `ssl_*_pem` from kubeconfig is materialized to `File::Temp`
