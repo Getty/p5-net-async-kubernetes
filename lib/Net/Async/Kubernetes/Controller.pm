@@ -335,14 +335,18 @@ sub list_objects {
 # The controller keeps its own signature - a status => {...} argument instead
 # of a patch document, merge as the default type - and builds the patch from
 # it; resolving the target, the request and the response are the client's
-# patch_status. Every other argument check (metadata, name, patch type,
-# unknown resource) happens there and comes back as a failed Future too.
+# patch_status. Its own options are checked here, with the client's k63
+# helper: the client only sees patch and type, so any other key (typ,
+# statuss, namespace in the object form) would be dropped silently. Every
+# other argument check (metadata, name, patch type, unknown resource) happens
+# there and comes back as a failed Future too.
 sub patch_status {
     my ($self, $class_or_object, @rest_args) = @_;
 
-    my (%args, @target);
+    my (%args, @target, @allowed);
     if (ref($class_or_object) && blessed($class_or_object)) {
         %args = @rest_args;
+        @allowed = qw( status type );
         # A class without a status attribute has nothing to fall back on; the
         # missing status is then reported below like any other.
         $args{status} //= $class_or_object->status if $class_or_object->can('status');
@@ -356,8 +360,11 @@ sub patch_status {
         } else {
             return Future->fail("Invalid arguments to patch_status()");
         }
+        @allowed = qw( name namespace status type );
         @target = ($class_or_object, name => $args{name}, namespace => $args{namespace});
     }
+    my $unknown = $self->kube->_unknown_argument_error('patch_status', \%args, @allowed);
+    return Future->fail($unknown) if defined $unknown;
     return Future->fail("status required for patch_status") unless defined $args{status};
 
     return $self->kube->patch_status(@target,
@@ -582,7 +589,12 @@ C<json>). Returns a L<Future> that resolves to the patched object.
 
 Bad arguments, a missing C<status> (including an object whose class has no
 C<status> to fall back on), an unknown resource or patch type, and server
-errors fail the returned L<Future> instead of dying.
+errors fail the returned L<Future> instead of dying. So does any option other
+than C<name>, C<namespace>, C<status> and C<type> -- in the object form only
+C<status> and C<type>, the object gives name and namespace -- before a
+request is sent: C<Unknown argument 'typ' to patch_status() (allowed: name,
+namespace, status, type)>. Such an option would otherwise be dropped when the
+patch is built.
 
 =method update_status
 

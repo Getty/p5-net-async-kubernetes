@@ -1870,6 +1870,9 @@ sub port_forward {
     } else {
         return Future->fail("Invalid arguments to port_forward()");
     }
+    my $unknown = $self->_unknown_argument_error('port_forward', \%args,
+        qw( name namespace ports subprotocol on_open on_frame on_close on_error ));
+    return Future->fail($unknown) if defined $unknown;
 
     return Future->fail("name required for port_forward") unless $args{name};
 
@@ -1940,6 +1943,13 @@ C<on_open> receives the created session object.
 C<on_frame> receives C<($channel, $payload)> where the first byte of each
 binary websocket frame is decoded as Kubernetes channel id.
 
+It takes C<name>, C<namespace>, C<ports> (one port or an arrayref of them,
+required), C<subprotocol> (default C<v4.channel.k8s.io>) and the callbacks
+C<on_open>, C<on_frame>, C<on_close> and C<on_error>. Any other option -- a
+misspelt C<onFrame> would otherwise be dropped, a C<subresource> would even
+land in the request path -- fails the L<Future> before a request is sent,
+naming the options C<port_forward> takes.
+
 =cut
 
 sub exec {
@@ -1961,6 +1971,9 @@ sub exec {
     } else {
         return Future->fail("Invalid arguments to exec()");
     }
+    my $unknown = $self->_unknown_argument_error('exec', \%args, qw( name namespace command
+        container stdin stdout stderr tty subprotocol on_open on_frame on_close on_error ));
+    return Future->fail($unknown) if defined $unknown;
 
     return Future->fail("name required for exec") unless $args{name};
 
@@ -2042,6 +2055,14 @@ C<on_open> receives the created session object.
 C<on_frame> receives C<($channel, $payload)> where the first byte of each
 binary websocket frame is decoded as Kubernetes channel id.
 
+Besides C<name>, C<namespace>, C<command> (a string or an arrayref,
+required), C<subprotocol> and the callbacks it takes C<container>,
+C<stdin>, C<stdout>, C<stderr> and C<tty>, sent as query parameters
+(C<stdout> and C<stderr> default to true, the others to false). Any other
+option -- a misspelt C<container> would otherwise run the command in the
+pod's default container -- fails the L<Future> before a request is sent,
+naming the options C<exec> takes.
+
 =cut
 
 sub attach {
@@ -2063,6 +2084,9 @@ sub attach {
     } else {
         return Future->fail("Invalid arguments to attach()");
     }
+    my $unknown = $self->_unknown_argument_error('attach', \%args, qw( name namespace
+        container stdin stdout stderr tty subprotocol on_open on_frame on_close on_error ));
+    return Future->fail($unknown) if defined $unknown;
 
     return Future->fail("name required for attach") unless $args{name};
 
@@ -2138,6 +2162,11 @@ C<on_open> receives the created session object.
 C<on_frame> receives C<($channel, $payload)> where the first byte of each
 binary websocket frame is decoded as Kubernetes channel id.
 
+It takes C<name>, C<namespace>, C<container>, C<stdin>, C<stdout>,
+C<stderr>, C<tty>, C<subprotocol> and the callbacks, as L</exec> does, but
+no C<command>. Any other option, C<command> among them, fails the L<Future>
+before a request is sent, naming the options C<attach> takes.
+
 =cut
 
 sub cp_to_pod {
@@ -2160,6 +2189,9 @@ sub cp_to_pod {
     } else {
         return Future->fail("Invalid arguments to cp_to_pod()");
     }
+    my $unknown = $self->_unknown_argument_error('cp_to_pod', \%args,
+        qw( name namespace container local remote chunk_size ));
+    return Future->fail($unknown) if defined $unknown;
 
     return Future->fail("name required for cp_to_pod") unless $args{name};
 
@@ -2245,6 +2277,11 @@ for very large files.
 Returns a L<Future> resolving to a hashref containing C<local>, C<remote>,
 C<bytes>, C<stderr>, and C<status>.
 
+It takes C<name>, C<namespace>, C<container>, C<local>, C<remote> and
+C<chunk_size> (bytes per stdin write, default 65536). Any other option fails
+the L<Future> before a request is sent, naming the options C<cp_to_pod>
+takes.
+
 =cut
 
 sub cp_from_pod {
@@ -2267,6 +2304,9 @@ sub cp_from_pod {
     } else {
         return Future->fail("Invalid arguments to cp_from_pod()");
     }
+    my $unknown = $self->_unknown_argument_error('cp_from_pod', \%args,
+        qw( name namespace container local remote ));
+    return Future->fail($unknown) if defined $unknown;
 
     return Future->fail("name required for cp_from_pod") unless $args{name};
 
@@ -2345,6 +2385,11 @@ for very large files.
 
 Returns a L<Future> resolving to a hashref containing C<local>, C<remote>,
 C<bytes>, C<stderr>, and C<status>.
+
+It takes C<name>, C<namespace>, C<container>, C<remote> and C<local>. Any
+other option -- C<chunk_size> belongs to L</cp_to_pod> only -- fails the
+L<Future> before a request is sent, naming the options C<cp_from_pod>
+takes.
 
 =cut
 

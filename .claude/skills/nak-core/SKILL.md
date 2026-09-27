@@ -46,7 +46,8 @@ is hand-written in every module; dzil bumps it.
   `retry_delay` (scalar|arrayref|coderef, default 1). API:
   `watch_resource($resource, %watcher_args, key_for=>sub)`, `start`/`stop`,
   `get_object`/`list_objects` (thin `$kube->` wrappers), `patch_status` (own signature
-  `status => {...}`, merge default; builds `{status => ...}` and delegates to the
+  `status => {...}`, merge default; refuses any other key itself (k65) — the client
+  only sees `patch`/`type`; builds `{status => ...}` and delegates to the
   client's `patch_status`), `update_status` (delegates to the client's). Both report
   every bad input as a failed Future — `update_status` pre-checks with `_object_class`
   where the client would croak.
@@ -99,6 +100,12 @@ first unknown key in sort order as `Unknown argument 'KEY' to METHOD() (allowed:
 a, b)` — Kubernetes::REST's wording — checked right after argument parsing, before
 class resolution, in `list` (`_list_request`), `get`, `log`, `patch`/`patch_status`
 (`_patch_args`; object form only `patch`, `type`) and `ensure_only` (croaks);
+k65 added `port_forward`, `exec`, `attach`, `cp_to_pod`, `cp_from_pod` (each
+allows exactly the keys its positional-name regex lists; before, leftovers
+went to `build_path`, which reads a stray `subresource` into the path) and
+the Controller's `patch_status` (via `$self->kube->`; object form only
+`status`, `type`) — all failed Futures, right after argument parsing (cp_*: after
+their loop check);
 `delete` uses it too (k64), after its class and name checks as since k60, and
 `_propagation_policy_error` words a bad policy as REST does: `Unknown
 propagationPolicy 'x' for delete() (use: Background, Foreground, Orphan)`.
