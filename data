@@ -1,0 +1,20 @@
+---
+claimed_at: 2026-09-27T21:23:08Z
+claimed_by: backlog-5
+class: standard
+completed: 2026-09-27T21:23:03Z
+created: 2026-09-27T20:19:33Z
+id: 63
+priority: medium
+started: 2026-09-27T20:35:41Z
+status: done
+tags:
+- api
+- args
+title: 'ensure_only, list, get, log: unbekannte Options-Keys verschwinden still'
+updated: 2026-09-27T21:23:08Z
+---
+
+Gefunden bei k60 (2026-09-27). ensure_only ignoriert unbekannte Options-Keys: namespace statt namespaces beschränkt das Prunen still auf Cluster-Scope. Ähnlich verschwinden Tippfehler wie labelselector bei list, get und log. Unbekannte Keys nach der Fehlerkonvention der Methode ablehnen (wie delete seit k60), vor jedem Request. Spiegelt kubernetes-rest k53.
+
+Commit 3f8b268
