@@ -43,7 +43,13 @@ Revision history for Net-Async-Kubernetes
    `patch_status`, `log`, `port_forward`, `exec`, `attach` and the cp
    helpers now fail their Future with the same "unknown resource" message
    as a qualified name; `expand_class`, `watcher` and `ensure` croak with
-   it.
+   it. A name that resolves to a class which does not load or compile (a
+   typo in a `+Class` resource_map entry), or to an IO::K8s helper that is
+   no resource class (a bare `List`, `Resource`, `Types` or
+   `Unstructured`), no longer dies in `build_path` either: the same methods
+   report the load error or "not a Kubernetes resource class" instead of
+   "unknown resource". `expand_class` therefore now loads the class it
+   returns.
  - `Net::Async::Kubernetes::Controller`'s `patch_status` and `update_status`
    now go through the client's methods of the same name instead of building
    their own requests. Signature, the merge default and failed Futures for

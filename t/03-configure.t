@@ -209,6 +209,15 @@ subtest 'expand_class delegates to _rest' => sub {
 # Custom resource_map in expand_class
 # ============================================================================
 
+# The class the custom entry below points at. expand_class only returns a
+# class that loads and is a resource, so the entry has to name a real one.
+BEGIN {
+    package My::Custom::Thing;
+    use IO::K8s::APIObject
+        api_version     => 'example.com/v1',
+        resource_plural => 'things';
+}
+
 subtest 'expand_class with custom resource_map' => sub {
     # Need to load the CRD class first
     eval {

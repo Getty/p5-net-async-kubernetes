@@ -261,7 +261,7 @@ sub _materialize_ssl_pem {
 # IO::K8s::expand_class fails closed: an unknown, malformed or mismatched
 # apiVersion yields undef instead of a bare-name guess. Passing that undef on to
 # build_path dies with "argument is not a module name", naming neither the
-# resource nor the reason, so every call site guards the result with this.
+# resource nor the reason, so _resolve_class reports it with this.
 sub _unknown_resource_error {
     my ($self, $short_class) = @_;
     return sprintf(
@@ -271,28 +271,61 @@ sub _unknown_resource_error {
     );
 }
 
-# Resolve a resource name to its IO::K8s class, or undef when no class ships
-# for it. Kubernetes::REST's expand_class fails closed for a qualified name
-# (undef) but open for a bare Kind: it fabricates 'IO::K8s::<Kind>' whether or
-# not that class exists, and build_path then dies synchronously in require.
-# That fabricated name, when it does not load, counts as unknown as well, so
-# every caller reports both the same way - a failed Future or a croak, per the
-# caller's contract. Any other class that fails to load is left to build_path,
-# which dies with the real load error.
+# Resolve a resource name to its IO::K8s class. Returns the class, or
+# (undef, $message) when no usable class comes out of the name, which every
+# caller reports per its contract - a failed Future or a croak. Kubernetes::REST's
+# expand_class fails closed for a qualified name (undef) but open for a bare
+# Kind: it fabricates 'IO::K8s::<Kind>' whether or not that class exists. Both
+# are an unknown resource; whatever else can go wrong with the class it did
+# resolve to is _usable_class's to report.
 sub _resolve_class {
     my ($self, $name, @args) = @_;
+    my $class = $self->_rest->expand_class($name, @args)
+        // return (undef, $self->_unknown_resource_error($name));
+    return $self->_usable_class($name, $class);
+}
+
+# What build_path would otherwise die on, synchronously and without naming the
+# resource: the class must load, and it must answer api_version as a class
+# method - build_path's own precondition for a path. That precondition, not a
+# role, is what tells a resource class from IO::K8s's helpers (List, Resource,
+# Types, Unstructured) that a bare name can land on: List has an api_version,
+# but as an instance accessor that dies when called on the class. Returns the
+# class, or (undef, $message) with the real cause - the load error, or "not a
+# resource class". A fabricated bare-Kind name that does not load is an
+# unknown resource, not a load error. IO::K8s::Unstructured is the one
+# resource without a class-level api_version - its Kind is instance data -
+# so, reached any other way than its own bare name 'Unstructured' (above all
+# through Kubernetes::REST's discovery fallback for a Kind), it is passed on
+# to build_path, which needs the Kind from the caller for it (karr k41).
+sub _usable_class {
+    my ($self, $name, $class) = @_;
     my $rest = $self->_rest;
-    my $class = $rest->expand_class($name, @args) // return;
     my $fabricated = defined $name && !ref $name && $class eq 'IO::K8s::' . $name;
-    return $class unless $fabricated;
-    return $class if $class->can('new') || eval { $rest->k8s->load_class($class); 1 };
-    return;
+
+    unless ($class->can('new') || eval { $rest->k8s->load_class($class); 1 }) {
+        my $load_error = $@;
+        return (undef, $self->_unknown_resource_error($name)) if $fabricated;
+        chomp $load_error;
+        return (undef, sprintf(
+            "resource '%s' resolves to class %s, which cannot be loaded: %s",
+            $name, $class, $load_error,
+        ));
+    }
+
+    return $class if $class eq 'IO::K8s::Unstructured' && !$fabricated;
+    return $class if $class->can('api_version') && defined eval { $class->api_version };
+    return (undef, sprintf(
+        "resource '%s' resolves to %s, which is not a Kubernetes resource class"
+            . " (it has no api_version to build a request path from)",
+        $name, $class,
+    ));
 }
 
 sub expand_class {
     my ($self, @args) = @_;
-    my $class = $self->_resolve_class(@args);
-    croak $self->_unknown_resource_error($args[0]) unless defined $class;
+    my ($class, $error) = $self->_resolve_class(@args);
+    croak $error unless defined $class;
     return $class;
 }
 
@@ -320,9 +353,15 @@ C<list>, C<get>, and C<watcher>.
 Croaks when the name cannot be resolved to an IO::K8s class -- a qualified
 name no class serves, and equally a bare Kind no class ships for (C<'Bogus'>),
 which L<Kubernetes::REST/expand_class> would hand back as a fabricated
-C<IO::K8s::Bogus>. This is the synchronous counterpart of the
-C<Future>-returning methods below, which report the same condition as a failed
-L<Future> with the same message.
+C<IO::K8s::Bogus>. It also croaks when the name resolves to a class that
+cannot serve as a resource, with the real cause rather than "unknown
+resource": a class that does not load or compile (say, a typo in a
+C<'+Class'> entry of L</resource_map>) croaks with its load error, and a
+class without an C<api_version> of its own -- an IO::K8s helper such as
+C<IO::K8s::List> that a bare C<'List'> lands on -- croaks as not being a
+Kubernetes resource class. This is the synchronous counterpart of the
+C<Future>-returning methods below, which report the same conditions as a
+failed L<Future> with the same message.
 
 =cut
 
@@ -339,8 +378,8 @@ sub list {
     my ($self, $short_class, %args) = @_;
 
     my $rest = $self->_rest;
-    my $class = $self->_resolve_class($short_class)
-        // return Future->fail($self->_unknown_resource_error($short_class));
+    my ($class, $error) = $self->_resolve_class($short_class);
+    return Future->fail($error) unless defined $class;
 
     # Selectors are query parameters; build_path only knows path segments and
     # would drop them silently, turning a filtered list into a full one.
@@ -408,8 +447,8 @@ sub get {
         return Future->fail("Invalid arguments to get()");
     }
 
-    my $class = $self->_resolve_class($short_class)
-        // return Future->fail($self->_unknown_resource_error($short_class));
+    my ($class, $error) = $self->_resolve_class($short_class);
+    return Future->fail($error) unless defined $class;
     return Future->fail("name required for get") unless $args{name};
 
     my $path = $rest->build_path($class, %args);
@@ -601,8 +640,8 @@ sub _patch_args {
             return "Invalid arguments to $label()";
         }
 
-        $class = $self->_resolve_class($class_or_object)
-            // return $self->_unknown_resource_error($class_or_object);
+        ($class, my $error) = $self->_resolve_class($class_or_object);
+        return $error unless defined $class;
         $name = $args{name} or return "name required for $label";
         $namespace = $args{namespace};
         $patch = $args{patch} // return "$label requires 'patch' parameter";
@@ -772,8 +811,8 @@ sub delete {
             return Future->fail("Invalid arguments to delete()");
         }
 
-        $class = $self->_resolve_class($class_or_object)
-            // return Future->fail($self->_unknown_resource_error($class_or_object));
+        ($class, my $error) = $self->_resolve_class($class_or_object);
+        return Future->fail($error) unless defined $class;
         $name = $args{name} or return Future->fail("name required for delete");
         $namespace = $args{namespace};
     }
@@ -829,8 +868,9 @@ sub _request_unchecked {
 # class serves croaks instead of falling back to the version the bare Kind
 # happens to map to (HorizontalPodAutoscaler alone means autoscaling/v2, a
 # different endpoint and schema than an autoscaling/v1 manifest). Without an
-# apiVersion the bare Kind resolves as it always did. $label only appears in
-# croak messages.
+# apiVersion the bare Kind resolves as it always did. Either way the class
+# must be usable (_usable_class): one that does not load croaks with its load
+# error. $label only appears in croak messages.
 sub _manifest_to_object {
     my ($self, $label, $manifest) = @_;
     my $kind = $manifest->{kind} or croak "$label: hashref must have 'kind'";
@@ -840,9 +880,11 @@ sub _manifest_to_object {
     return $rest->k8s->struct_to_object($self->expand_class($kind), $manifest)
         unless defined $api_version && length $api_version;
 
-    my $class = $rest->expand_class($kind, $api_version)
+    my $resolved = $rest->expand_class($kind, $api_version)
         // croak "$label: no IO::K8s class for apiVersion '$api_version', kind '$kind'"
             . " (add it to resource_map if it is a CRD)";
+    my ($class, $error) = $self->_usable_class("$api_version/$kind", $resolved);
+    croak "$label: $error" unless defined $class;
     return $rest->k8s->struct_to_object($class, $manifest);
 }
 
@@ -1002,8 +1044,9 @@ under any apiVersion other than C<batch/v1>.
 
 Errors that are known before any request is made -- a hashref without
 C<kind>, a value that is neither an object nor a hashref, an object missing
-C<metadata>/C<metadata.name>, an unknown C<kind>, or an C<apiVersion> that
-resolves to no known class (the message names both the Kind and the
+C<metadata>/C<metadata.name>, an unknown C<kind>, a C<kind> whose class does
+not load or is no resource class (see L</expand_class>), or an C<apiVersion>
+that resolves to no known class (the message names both the Kind and the
 C<apiVersion>) -- croak synchronously, as with L</update>. Anything that
 goes wrong during the request flow itself fails the Future instead.
 
@@ -1220,8 +1263,8 @@ sub log {
     my $previous      = delete $args{previous};
     my $limit_bytes   = delete $args{limitBytes};
 
-    my $class = $self->_resolve_class($short_class)
-        // return Future->fail($self->_unknown_resource_error($short_class));
+    my ($class, $error) = $self->_resolve_class($short_class);
+    return Future->fail($error) unless defined $class;
     my $path = $rest->build_path($class, %args) . '/log';
 
     my %params;
@@ -1328,8 +1371,8 @@ sub port_forward {
     my $on_close = delete $args{on_close};
     my $on_error = delete $args{on_error};
 
-    my $class = $self->_resolve_class($short_class)
-        // return Future->fail($self->_unknown_resource_error($short_class));
+    my ($class, $error) = $self->_resolve_class($short_class);
+    return Future->fail($error) unless defined $class;
     my $path = $rest->build_path($class, %args) . '/portforward';
 
     # Keep compatibility with Kubernetes::REST >= 1.100 by expanding repeated
@@ -1423,8 +1466,8 @@ sub exec {
     my $on_close = delete $args{on_close};
     my $on_error = delete $args{on_error};
 
-    my $class = $self->_resolve_class($short_class)
-        // return Future->fail($self->_unknown_resource_error($short_class));
+    my ($class, $error) = $self->_resolve_class($short_class);
+    return Future->fail($error) unless defined $class;
     my $path = $rest->build_path($class, %args) . '/exec';
 
     my %params = (
@@ -1514,8 +1557,8 @@ sub attach {
     my $on_close = delete $args{on_close};
     my $on_error = delete $args{on_error};
 
-    my $class = $self->_resolve_class($short_class)
-        // return Future->fail($self->_unknown_resource_error($short_class));
+    my ($class, $error) = $self->_resolve_class($short_class);
+    return Future->fail($error) unless defined $class;
     my $path = $rest->build_path($class, %args) . '/attach';
 
     my %params = (
