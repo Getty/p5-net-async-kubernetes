@@ -290,7 +290,9 @@ subtest 'without the seam discover reads discovery synchronously, right away' =>
         sync => { '/api' => [ 503, { kind => 'Status', code => 503 } ] });
     my $failed = discover_ok($failing, 'no seam, 503') or return;
     ok($failed->is_failed, 'a discovery error fails the Future');
-    like(($failed->failure)[0], qr/discovery GET \/api failed: 503/, 'with the reason');
+    # Kubernetes::REST's own wording: 'discovery GET /api failed: 503' up to
+    # 1.109, 'Kubernetes API error (discovery GET /api): 503 ...' after (its k59).
+    like(($failed->failure)[0], qr{discovery GET /api(?:\)| failed): 503}, 'with the reason');
 };
 
 subtest 'without resource_map_from_cluster discover sends nothing' => sub {
