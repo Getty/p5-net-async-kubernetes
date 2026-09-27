@@ -1,0 +1,20 @@
+---
+claimed_at: 2026-09-27T22:16:37Z
+claimed_by: backlog-7
+class: standard
+completed: 2026-09-27T22:16:30Z
+created: 2026-09-27T21:43:41Z
+id: 67
+priority: low
+started: 2026-09-27T21:54:04Z
+status: done
+tags:
+- refactor
+- k65-followup
+title: Positionsnamen-Regex und erlaubte Keys pro Methode aus einer Liste
+updated: 2026-09-27T22:16:37Z
+---
+
+Gefunden bei k65 (2026-09-27). In log, port_forward, exec, attach, cp_to_pod und cp_from_pod stehen die Regex für den positionellen Namen und die qw-Liste der erlaubten Keys doppelt und können auseinanderlaufen. Beides aus einer Liste pro Methode ableiten.
+
+Commit 4b487a7
