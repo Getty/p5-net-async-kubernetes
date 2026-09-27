@@ -1,0 +1,22 @@
+---
+claimed_at: 2026-09-27T00:01:25Z
+claimed_by: status-ensure
+class: standard
+completed: 2026-09-27T00:01:25Z
+created: 2026-09-26T21:24:23Z
+id: 36
+priority: medium
+started: 2026-09-26T21:24:32Z
+status: done
+tags:
+- tls
+- test
+title: Kubeconfig-Inline-Zertifikate bis in die TLS-Optionen absichern
+updated: 2026-09-27T00:01:25Z
+---
+
+Aus hi-proto: Kommentar in HI::Comb::Controller sagt, der Async-Client habe client-cert issues; hi-proto pinnt 0.006. Seit 0.007 (ea3347c) werden ssl_ca_pem, ssl_cert_pem und ssl_key_pem in Temp-Dateien geschrieben, t/04 prüft das aber nur ab einem fertigen Server-Objekt. Done: netzfreier Test von einer Kubeconfig mit certificate-authority-data, client-certificate-data und client-key-data über new(kubeconfig) bis zu den SSL-Argumenten des HTTP-Requests. Rot heißt Fix, grün heißt: Problem aus hi-proto ist seit 0.007 behoben.
+
+Umgesetzt auf feat/status-ensure, uncommittet. prove -lr t/ im Mock-Modus 26 Dateien 214 Tests PASS, dzil build sauber, gebaute Suite PASS. Wartet auf Commit durch nak-release-manager.
+
+2026-09-27 00:01 Committed as 907ef99 on feat/status-ensure: t/22-kubeconfig-inline-tls.t added, network-free regression test for inline kubeconfig TLS certificates, no behaviour change so no Changes entry. Verified in isolated worktree: prove -lr t/ mock mode, 26 files, 214 tests, PASS.
