@@ -1,0 +1,24 @@
+---
+claimed_at: 2026-09-27T00:51:36Z
+claimed_by: nak-followups
+class: standard
+completed: 2026-09-27T00:40:09Z
+created: 2026-09-26T21:56:24Z
+id: 38
+priority: low
+started: 2026-09-27T00:04:36Z
+status: done
+tags:
+- controller
+- cleanup
+title: Controller-Status-Helfer über die Client-Methoden führen
+updated: 2026-09-27T00:51:36Z
+---
+
+Net::Async::Kubernetes::Controller hat eigene patch_status und update_status (Signatur status statt patch, Pfad per String-Anhang slash status statt build_path mit subresource). Mit k34 gibt es gleichnamige Methoden am Client in der Kubernetes::REST-Signatur. Prüfen, ob der Controller darauf delegieren kann, ohne seine öffentliche Signatur zu brechen.
+
+Umgesetzt auf feat/status-ensure, uncommittet. prove -lr t/ Mock-Modus 28 Dateien 231 Tests PASS, dzil build sauber.
+
+2026-09-27 00:40 Committed as 5f65e37: Build the controller status helpers on the client's patch_status/update_status. Verified in an isolated worktree, prove -lr t/ mock mode 28 files 231 tests PASS.
+
+2026-09-27 00:51 Commit neu geschnitten mit Changes-Eintrag, neuer Hash 1765cc8.
