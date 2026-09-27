@@ -108,6 +108,12 @@ an `ensure` croak fails its chain. **Errors of the flow itself** (HTTP ≥ 400 v
   `kind`/`apiVersion` of an Unstructured object; a name split like `expand_class`
   splits it (a qualified `group/version/Kind` keeps group and version; `+…` and
   `…::…` names carry no Kind).
+- An `apiVersion` in the hint pins the group/version. Kubernetes::REST ≤ 1.108 falls
+  back to any group serving the Kind when the pinned one is not served (fixed in 1.109,
+  its k43); the client refuses that itself: `_request_path` rejects a path outside
+  `/apis/<group>/<version>/` (`/api/<version>/` for core) with 1.109's message, and
+  `_usable_class` probes a qualified name that resolved to Unstructured through
+  `_request_path` (no request, cached catalog) → "unknown resource".
 - Without discovery (`resource_map_from_cluster` 0, the default), or for an explicit
   `IO::K8s::Unstructured` class name or an Unstructured object without `kind`,
   `build_path` croaks. `_request_path` catches it and returns `(undef, $message)`

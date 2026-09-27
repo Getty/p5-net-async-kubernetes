@@ -140,6 +140,13 @@ L</ensure> or another object form is addressed the same way, by its own
 C<kind> and C<apiVersion> -- without this option there is no discovery to
 find its path in.
 
+That group and version are the only ones such a request goes to. When the
+cluster does not serve them, a qualified name is an unknown resource and an
+object or manifest with that C<apiVersion> is refused, even if another group
+or another version serves a Kind of the same name -- nothing is listed,
+changed or deleted there instead. This holds with every supported
+L<Kubernetes::REST>; before 1.109 that one fell back to the other group.
+
 A request for L<IO::K8s::Unstructured> that has no path -- without this
 option, for the explicit class name C<IO::K8s::Unstructured> (a class name
 carries no Kind), or for an object without C<kind> -- is refused before it
@@ -333,7 +340,15 @@ sub _usable_class {
         ));
     }
 
-    return $class if $class eq 'IO::K8s::Unstructured' && !$fabricated;
+    if ($class eq 'IO::K8s::Unstructured' && !$fabricated) {
+        # A qualified name counts only in its own group/version (see
+        # _request_path): with Kubernetes::REST up to 1.108 another group
+        # serving the Kind was enough to resolve it. Asking for its path
+        # confirms it exactly, from the cached catalog, without a request.
+        return $class unless defined $name && !ref $name && $name =~ m{/};
+        my ($path) = $self->_request_path($class, $name);
+        return defined $path ? $class : (undef, $self->_unknown_resource_error($name));
+    }
     return $class if $class->can('api_version') && defined eval { $class->api_version };
     return (undef, sprintf(
         "resource '%s' resolves to %s, which is not a Kubernetes resource class"
@@ -396,16 +411,32 @@ sub _unstructured_hint {
 # build_path croaks for that, and synchronously: from a Future-returning
 # method it escaped as a die. The message drops the location the croak ends
 # in, which points here; a croaking caller adds its caller's own.
+#
+# An apiVersion in the hint - from a qualified name or the object - names
+# the one group/version the request may go to. Kubernetes::REST up to 1.108
+# looks it up in discovery and, when the cluster does not serve it, falls
+# back to any group serving a Kind of that name: list, delete and
+# ensure_only's prune went to that other resource. A path outside that
+# group/version is refused here as 1.109 refuses it (its k43), whichever
+# version is installed.
 sub _request_path {
     my ($self, $class, $ident, %args) = @_;
-    my $path = eval {
-        $self->_rest->build_path($class, %args, $self->_unstructured_hint($class, $ident));
-    };
-    return $path if defined $path;
-    my $error = $@ ? "$@" : "cannot build a request path for $class";
-    $error =~ s/\s+\z//;
-    $error =~ s/ at \S+ line \d+\.\z//;
-    return (undef, $error);
+    my %hint = $self->_unstructured_hint($class, $ident);
+    my $path = eval { $self->_rest->build_path($class, %args, %hint) };
+    unless (defined $path) {
+        my $error = $@ ? "$@" : "cannot build a request path for $class";
+        $error =~ s/\s+\z//;
+        $error =~ s/ at \S+ line \d+\.\z//;
+        return (undef, $error);
+    }
+    my $api_version = $hint{api_version};
+    if (defined $api_version && length $api_version) {
+        my $prefix = $api_version =~ m{/} ? "/apis/$api_version/" : "/api/$api_version/";
+        return (undef, "no discovery entry for Kind '" . ($hint{kind} // '') . "'"
+            . " in apiVersion '$api_version' - cannot build a path for IO::K8s::Unstructured")
+            unless index($path, $prefix) == 0;
+    }
+    return $path;
 }
 
 # The name to hand Kubernetes::REST's inflate_object, inflate_list and

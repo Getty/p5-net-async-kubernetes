@@ -275,6 +275,104 @@ subtest 'a qualified name keeps its group and version, not the first group servi
     is_deeply([ grep { /a\.example\.org/ } @{ calls() } ], [], 'nothing went to a.example.org');
 };
 
+subtest 'a qualified name whose group/version is not served sends nothing anywhere' => sub {
+    # karr k56 (Kubernetes::REST k43): example.org/v1 is not served, but
+    # a.example.org/v1 and example.org/v2 serve a Widget. A qualified name
+    # counts only in its own group and version; a fallback would list,
+    # delete and prune in one of the others.
+    my ($kube, $io) = make_kube(
+        group_entry('a.example.org', [ 'v1', [ 'Widget', 'widgets' ] ]),
+        group_entry('example.org',   [ 'v2', [ 'Widget', 'widgets' ] ]),
+    );
+    my $GVK = 'example.org/v1/Widget';
+
+    # Anything that lands in a group/version that does serve a Widget
+    # succeeds, so a misrouted request shows up as one.
+    for my $gv ('a.example.org/v1', 'example.org/v2') {
+        my $widgets = "/apis/$gv/namespaces/ns/widgets";
+        my $w1 = manifest($gv, 'Widget', 'w1', metadata => { labels => { app => 'demo' } });
+        MockTransport::mock_response('GET', $_,
+            { apiVersion => $gv, kind => 'WidgetList', items => [ $w1 ] })
+            for $widgets, "$widgets?labelSelector=app=demo";
+        MockTransport::mock_response($_, "$widgets/w1", $w1) for qw(GET PUT PATCH);
+        MockTransport::mock_response($_, "$widgets/w1/status", $w1) for qw(PUT PATCH);
+        MockTransport::mock_response('POST', $widgets, $w1);
+        MockTransport::mock_response('DELETE', "$widgets/w1", $SUCCESS);
+        MockTransport::mock_response('GET', "$widgets/w1/log", 'a line');
+        MockTransport::mock_watch_events($widgets, [ { type => 'ADDED', object => $w1 } ]);
+    }
+
+    my $croak = eval { $kube->expand_class($GVK); 1 } ? '' : $@;
+    like($croak, qr{example\.org/v1}, 'expand_class croaks, naming the group/version');
+
+    for my $call (
+        [ list         => sub { $kube->list($GVK, namespace => 'ns') } ],
+        [ get          => sub { $kube->get($GVK, 'w1', namespace => 'ns') } ],
+        [ patch        => sub { $kube->patch($GVK, 'w1', namespace => 'ns', patch => {}, type => 'merge') } ],
+        [ patch_status => sub { $kube->patch_status($GVK, 'w1', namespace => 'ns', patch => { status => {} }) } ],
+        [ delete       => sub { $kube->delete($GVK, 'w1', namespace => 'ns') } ],
+        [ log          => sub { $kube->log($GVK, 'w1', namespace => 'ns') } ],
+        [ port_forward => sub { $kube->port_forward($GVK, 'w1', namespace => 'ns', ports => [80]) } ],
+        [ exec         => sub { $kube->exec($GVK, 'w1', namespace => 'ns', command => ['true']) } ],
+        [ attach       => sub { $kube->attach($GVK, 'w1', namespace => 'ns') } ],
+    ) {
+        my ($method, $code) = @$call;
+        my $f = eval { $code->() };
+        is($@, '', "$method does not croak");
+        ok($f && $f->is_failed, "$method returns a failed Future");
+        like($f && $f->is_failed ? ($f->failure)[0] : '', qr{example\.org/v1}, "$method: the failure names the group/version");
+    }
+
+    my $watch_croak = eval {
+        $kube->watcher($GVK, namespace => 'ns', on_added => sub { });
+        1;
+    } ? '' : $@;
+    like($watch_croak, qr{example\.org/v1}, 'the watcher croaks when it starts');
+
+    my @warnings;
+    my @applied = eval {
+        local $SIG{__WARN__} = sub { push @warnings, $_[0] };
+        $kube->ensure_only(
+            label      => 'app=demo',
+            objects    => [],
+            kinds      => [ $GVK ],
+            namespaces => ['ns'],
+        )->get;
+    };
+    is($@, '', 'ensure_only does not die');
+    is(scalar @warnings, 1, 'ensure_only warns once');
+    like($warnings[0] // '', qr{cannot list \Q$GVK\E in namespace 'ns', nothing pruned there},
+        'ensure_only: the entry is skipped, not listed elsewhere');
+
+    # The same apiVersion on an Unstructured object, and in a manifest.
+    my $object = unstructured('example.org/v1', 'Widget', 'w1');
+    for my $call (
+        [ create       => sub { $kube->create($object) } ],
+        [ patch        => sub { $kube->patch($object, patch => {}, type => 'merge') } ],
+        [ patch_status => sub { $kube->patch_status($object, patch => { status => {} }) } ],
+        [ delete       => sub { $kube->delete($object) } ],
+    ) {
+        my ($method, $code) = @$call;
+        my $f = eval { $code->() };
+        is($@, '', "$method (object) does not croak");
+        like($f && $f->is_failed ? ($f->failure)[0] : '', qr{example\.org/v1},
+            "$method (object) returns a failed Future naming the apiVersion");
+    }
+    for my $call (
+        [ update            => sub { $kube->update($object) } ],
+        [ update_status     => sub { $kube->update_status($object) } ],
+        [ ensure            => sub { $kube->ensure($object) } ],
+        [ 'ensure manifest' => sub { $kube->ensure(manifest('example.org/v1', 'Widget', 'w1')) } ],
+    ) {
+        my ($method, $code) = @$call;
+        my $croak = eval { $code->(); 1 } ? '' : $@;
+        like($croak, qr{example\.org/v1}, "$method croaks, naming the apiVersion");
+    }
+
+    is_deeply(calls(), [], 'no request was sent, to any group or version');
+    is_deeply($io->requests, [ 'GET /api', 'GET /apis' ], "Kubernetes::REST's own io only fetched discovery");
+};
+
 subtest 'log, port_forward, exec and attach take the discovery path too' => sub {
     my ($kube) = make_kube(group_entry('example.com', [ 'v1', [ 'Widget', 'widgets' ] ]));
     my $W1 = '/apis/example.com/v1/namespaces/ns/widgets/w1';

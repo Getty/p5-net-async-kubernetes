@@ -129,6 +129,17 @@ Revision history for Net-Async-Kubernetes
    `attach` and the cp helpers now fail their Future with the reason;
    `update`, `update_status`, `ensure` and the watcher croak with it, as
    with their other bad arguments, now from the caller's line.
+ - Fix a qualified `group/version/Kind` name, or an `IO::K8s::Unstructured`
+   object or manifest whose `apiVersion` the cluster does not serve,
+   reaching another group that serves a Kind of the same name. With
+   `resource_map_from_cluster` and `Kubernetes::REST` 1.108,
+   `example.org/v1/Widget` resolved through discovery to whichever group
+   served a `Widget`, and `list`, `get`, `patch`, `delete`, `log`, the
+   duplex methods, `ensure`, `ensure_only`'s prune and the watcher went
+   there. The name is now an unknown resource and the object or manifest is
+   refused before any request, as with Kubernetes::REST 1.109: a failed
+   Future, a croak from `expand_class`, `update`, `update_status`, `ensure`
+   and the watcher, a warning from `ensure_only`.
 
 0.008     2026-09-22 04:13:56Z
  - Add public `rest` and `new_object($kind, %fields)` on the client: the
