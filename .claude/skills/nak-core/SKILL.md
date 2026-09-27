@@ -1,23 +1,28 @@
 ---
 name: nak-core
-description: Load before editing Net::Async::Kubernetes — the Kubernetes::REST seam, Watcher and Controller mechanics, websocket duplex transport, the dual-mode test harness.
+description: Load before editing Net::Async::Kubernetes — the Kubernetes::REST seam, class resolution and error convention, ensure/ensure_only, Watcher and Controller mechanics, websocket duplex transport, the dual-mode test harness.
 ---
 
 # Net::Async::Kubernetes — Core Architecture
 
-Async Kubernetes client on IO::Async. `Kubernetes::REST` is used **purely** as
-request-builder/response-inflater (its own `io` backend is never invoked); `IO::K8s`
-provides the typed objects. `$VERSION` is hand-written in every module; dzil bumps it.
+Async Kubernetes client on IO::Async. `Kubernetes::REST` is used as
+request-builder/response-inflater; its own `io` backend never carries a request —
+except discovery (see `resource_map_from_cluster` below). `IO::K8s` provides the typed
+objects. `$VERSION` is hand-written in every module; dzil bumps it.
 
 ## Classes
 
 - **`Net::Async::Kubernetes`** (`lib/.../Kubernetes.pm`) — IO::Async::Notifier. Config:
   `kubeconfig`, `context`, `server`, `credentials`, `resource_map`,
-  `resource_map_from_cluster`. Public API (all returning Futures unless noted):
-  `list` → `IO::K8s::List` (use `->items`!), `get`/`create`/`update`/`patch` →
-  inflated object, `delete` → `1`, `log` → full text or `undef` with `on_line`,
-  `port_forward`/`exec`/`attach` → session, `cp_to_pod`/`cp_from_pod` →
-  `{local,remote,bytes,stderr,status}`. Non-Future: `expand_class`, `watcher(...)`,
+  `resource_map_from_cluster` (default 0). Public API (all returning Futures unless
+  noted): `list` → `IO::K8s::List` (use `->items`!; `labelSelector`/`fieldSelector`
+  go out as query parameters), `get`/`create`/`update`/`patch` → inflated object,
+  `patch_status` (PATCH `.../status`, default type `merge`) / `update_status` (PUT
+  `.../status`, whole object) → inflated object, `delete` → `1`, `ensure` → object,
+  `ensure_all` → objects in input order, `ensure_only` → the applied objects, `log` →
+  full text or `undef` with `on_line`, `port_forward`/`exec`/`attach` → session,
+  `cp_to_pod`/`cp_from_pod` → `{local,remote,bytes,stderr,status}`. Non-Future:
+  `rest` (the lazy `Kubernetes::REST`), `new_object`, `expand_class`, `watcher(...)`,
   `controller(...)` (both `add_child` the returned notifier).
 - **`Net::Async::Kubernetes::PortForwardSession`** (`lib/.../PortForwardSession.pm`) —
   own file since 0.008, `use`d from `Kubernetes.pm`. Blessed hashref around `ws_client`:
@@ -25,24 +30,30 @@ provides the typed objects. `$VERSION` is hand-written in every module; dzil bum
   JSON), `close($code?,$payload?)`; aliases `write`/`stdin`.
 - **`Net::Async::Kubernetes::Watcher`** — Notifier; auto-reconnecting watch stream.
   Config: `kube` (**weak ref**), `resource`, `namespace`, `timeout` (300),
-  `label_selector`, `field_selector`, `names`, `event_types`,
-  `on_added/on_modified/on_deleted/on_error/on_event`. `start` idempotent; `stop`.
+  `label_selector`, `field_selector`, `names`, `event_types`, `reconnect_delay` (1),
+  `max_reconnect_delay` (30), `max_retries` (undef = forever; the three are validated
+  in `configure`, croak), `on_added/on_modified/on_deleted/on_error/on_event`.
+  `start` idempotent; `stop`.
 - **`Net::Async::Kubernetes::Controller`** — Notifier; minimal controller runtime.
   Config: `kube` (**weak ref**) OR client-construction keys (builds its own client,
   held strongly — it owns that one), `on_reconcile` (required), `on_watch_error`,
   `retry_delay` (scalar|arrayref|coderef, default 1). API:
   `watch_resource($resource, %watcher_args, key_for=>sub)`, `start`/`stop`,
-  `get_object`/`list_objects` (thin `$kube->` wrappers), `patch_status` (PATCH
-  `.../status`, default type `merge`), `update_status` (PUT `$object->TO_JSON`).
+  `get_object`/`list_objects` (thin `$kube->` wrappers), `patch_status` (own signature
+  `status => {...}`, merge default; builds `{status => ...}` and delegates to the
+  client's `patch_status`), `update_status` (delegates to the client's). Both report
+  every bad input as a failed Future — `update_status` pre-checks with `_object_class`
+  where the client would croak.
 
 ## Request pipeline — the Kubernetes::REST seam
 
-One lazy `Kubernetes::REST` in `_rest`; one shared `Net::Async::HTTP` in `_http`
-(`max_connections_per_host => 0` so watch streams don't starve CRUD — never add a
-second UA). Uniform CRUD shape:
+One lazy `Kubernetes::REST` in `rest` (`_rest` is the same); one shared
+`Net::Async::HTTP` in `_http` (`max_connections_per_host => 0` so watch streams don't
+starve CRUD — never add a second UA). Uniform CRUD shape:
 
 ```
-$rest->build_path($class, name=>, namespace=>)
+my ($class, $error) = $self->_resolve_class($name);        # or _object_class($label, $obj)
+$rest->build_path($class, name=>, namespace=>, $self->_unstructured_hint($class, $name_or_obj))
   → $rest->prepare_request(METHOD, $path, body=>, parameters=>, headers=>)
   → $self->_do_request($req)
   → ->then { $rest->check_response($res, "op class"); $rest->inflate_object/inflate_list }
@@ -50,37 +61,127 @@ $rest->build_path($class, name=>, namespace=>)
 
 Use only the public building blocks: `expand_class`, `build_path`, `prepare_request`,
 `check_response` (croaks on status ≥ 400 — inside `->then` that becomes a failed
-Future), `inflate_object`, `inflate_list`, `process_watch_chunk`, `process_log_chunk`.
-Never reach for `_`-prefixed Kubernetes::REST internals.
+Future), `inflate_object`, `inflate_list`, `process_watch_chunk`, `process_log_chunk`,
+plus the documented `io` attribute. Never call `_`-prefixed Kubernetes::REST internals;
+where the client needs one's behaviour it keeps a private mirror of its own
+(`_unstructured_hint`, `_api_version_and_kind`).
 
-`expand_class` **fails closed**: a qualified `"group/version/Kind"` that is not in the
-resource map returns `undef` (a bare unknown `Kind` still falls back to `IO::K8s::$Kind`).
-Every call site guards it — `Future->fail("unknown resource …")` where the contract is a
-Future, `croak` on the two synchronous paths (`$kube->expand_class`, starting a watcher).
-Unguarded, that `undef` reaches `build_path` and dies with "argument is not a module name".
+### Class resolution and the error convention
 
-`_do_request` wraps the HTTP::Response back into `Kubernetes::REST::HTTPResponse` —
-that re-wrap is the seam mocks and live transport share. `_do_streaming_request` is
-the same with an `on_header`-installed chunk callback (GET-only, resolved response has
-empty content). Override points the test harness replaces: `_do_request`,
-`_do_streaming_request`, `_do_duplex_request`, `_add_to_loop`,
-`_make_websocket_client`.
+Nothing unusable reaches `build_path`, which would die synchronously without naming
+the resource:
+
+- `_resolve_class($name)` — `$rest->expand_class` fails closed for a qualified name
+  (`undef`) but open for a bare Kind (a fabricated `IO::K8s::<Kind>`); both, and a
+  fabricated name that does not load, are "unknown resource '…'". Everything else goes
+  to `_usable_class`.
+- `_usable_class($name, $class)` — the class must load (else its load error) and
+  answer `api_version` as a class method (else "not a Kubernetes resource class" — a
+  bare `List`, `Resource`, `Types`, `Unstructured`). `IO::K8s::Unstructured` passes
+  unless reached through its own bare name. The public `expand_class` therefore loads
+  what it returns.
+- `_object_class($label, $object)` — the same check on `ref($object)` for the object
+  forms (`create`, `update`, `update_status`, `patch`, `patch_status`, `delete`,
+  `ensure`); not blessed → "requires an IO::K8s object".
+
+All three return the class or `(undef, $message)`; the caller reports it per its
+contract. **Input errors known before any request croak synchronously** in
+`expand_class`, when a watcher starts, and in `update`, `update_status`, `ensure`
+(incl. `ensure_only`'s hashref resolution and missing `label`); every other
+Future-returning method returns `Future->fail($message)`. `ensure_all` never croaks —
+an `ensure` croak fails its chain. **Errors of the flow itself** (HTTP ≥ 400 via
+`check_response`, transport failures) are always failed Futures.
+
+### Unstructured and discovery
+
+- `resource_map_from_cluster => 1`: Kubernetes::REST fetches discovery (`GET /api`,
+  `GET /apis`) **through its own synchronous `io`** (LWP by default), once, on first
+  use — it blocks the loop and bypasses `_do_request`. Its map resolves shipped Kinds;
+  a Kind discovery lists but nothing ships resolves to `IO::K8s::Unstructured`.
+- Unstructured has no class-level api_version; `build_path` needs `kind` (and
+  `api_version`) from the caller and takes plural and scope from the discovery catalog.
+  Every `build_path` call — CRUD, status, log, duplex, both paths in `ensure`, the
+  Watcher — passes `_unstructured_hint($class, $ident)`: empty for typed classes;
+  `kind`/`apiVersion` of an Unstructured object; a name split like `expand_class`
+  splits it (a qualified `group/version/Kind` keeps group and version; `+…` and
+  `…::…` names carry no Kind).
+- Without discovery (`resource_map_from_cluster` 0, the default), or for an explicit
+  `IO::K8s::Unstructured` class name or an Unstructured object without `kind`,
+  `build_path` still croaks synchronously — known gap.
+- Unstructured status lives in the unknown-fields bag: read it via `TO_JSON`, never
+  `->status`.
+
+### Unchecked requests
+
+`_request_unchecked(METHOD, $path, %opts)` resolves with the raw
+`Kubernetes::REST::HTTPResponse`. `_list_request` / `_delete_request` are `list` /
+`delete` up to that point and resolve with `($class, $response)` (argument errors
+still fail first). Branch on `$response->status`, never on the text `check_response`
+croaks with.
+
+### Transports
+
+- `_do_request` wraps the HTTP::Response back into `Kubernetes::REST::HTTPResponse` —
+  that re-wrap is the seam mocks and live transport share.
+- `_do_streaming_request($req, $on_chunk)` (GET-only): `on_header` installs the chunk
+  callback; resolves at the end of the stream with a `Kubernetes::REST::HTTPResponse`
+  — empty content for a success, the error body for a status ≥ 400. An error body is
+  never passed to `$on_chunk` (it would pass for a log line or a watch event); the
+  caller runs `check_response` on the response.
+- Override points the test harness replaces: `_do_request`, `_do_streaming_request`,
+  `_do_duplex_request`, `_add_to_loop`, `_make_websocket_client`.
+
+## ensure / ensure_all / ensure_only
+
+- Hashref → `_manifest_to_object`: `apiVersion` is authoritative
+  (`expand_class($kind, $apiVersion)`, croak naming both if nothing serves it); no
+  apiVersion → bare Kind. The resolved class goes to `struct_to_object` as
+  `'+'.$class` — a plain `Gizmo` (from `'+Gizmo'` in the map) would be re-read as a
+  Kind.
+- `ensure`: unchecked GET → 404: POST; POST 409 → refetch → the same path as an
+  existing object. Existing: core `v1` PersistentVolumeClaim returned unchanged;
+  `batch/v1` Job returned while active/succeeded, else delete (failure ignored) +
+  `create`; anything else PUT at the server's resourceVersion (written back into the
+  caller's object), a 409 there refetches once and calls `update` (no further retry).
+  Special cases are matched by `_api_version_and_kind` (exact apiVersion + Kind; class
+  data for typed objects, instance data for Unstructured) — never by class name.
+- `ensure_all`: strictly sequential Future chain; the first failure stops it.
+- `ensure_only`: resolves every hashref first, then `ensure_all`, then per kind ×
+  namespace (sequential) `_list_request` and per unexpected item (sequential)
+  `_delete_request`. Key = (API group, Kind, namespace, name) from each object —
+  never from the `kinds` string; no version. A 404 on list or delete is silent;
+  any other failure (HTTP error, transport error, unresolvable `kinds` entry) is
+  `carp`ed (`ensure_only: cannot list <Kind> in namespace '<ns>' | at cluster scope,
+  nothing pruned there: <reason>` / `cannot delete <Kind> '<name>' …`) and the prune
+  goes on. The reason drops the caught croak's location; carp's own points into
+  Future (the callback's caller). A dying `$SIG{__WARN__}` fails the Future. Resolves
+  to the applied objects either way.
 
 ## Watcher mechanics
 
 - Params per cycle: `watch=true`, `timeoutSeconds`, tracked `resourceVersion`,
-  selectors. `resourceVersion` updated from every processed chunk result.
+  selectors. `resourceVersion` updated from every processed chunk result. Resolving
+  the resource croaks in `_start_watch` (at add/start).
 - **410 Gone**: clears `resourceVersion`, drops remaining events in that chunk, is NOT
   delivered to `on_error`; stream ends naturally and reconnects without a version.
-- Reconnect: clean end → immediate restart; failure → fixed 1 s retry, forever. No
-  backoff, no `allowWatchBookmarks`, no informer cache.
+- Reconnect: a cycle that ends with status < 400 → immediate restart. A response
+  ≥ 400 or a failed request → `_watch_failed`: delay `reconnect_delay * 2**(n-1)`
+  capped at `max_reconnect_delay` (exponent capped at 64), held in `_retry_future`;
+  data arriving on a stream resets the failure count. Each failure is reported —
+  whatever `event_types` says — as a `Status` hashref (`reason => 'WatchFailed'`,
+  `code` = HTTP status or 0, `message` "watch X failed, retrying in Ns: cause",
+  `details => {kind, retryAfterSeconds}`) to `on_error`, else `warn`. Past
+  `max_retries` consecutive failures it stops first, then reports "giving up after N
+  retries". No `allowWatchBookmarks`, no informer cache.
+- `start` is a no-op while watching or waiting on `_retry_future`, and resets the
+  failure count. `stop` cancels a pending `_retry_future` and defers `$f->cancel` via
+  `$loop->later` — cancelling inside the connection's own `on_read` triggers
+  Net::Async::HTTP's "Spurious on_read of connection while idle". Any new cancel path
+  must defer the same way. `on_error` may call `stop`.
 - Dispatch order: type filter (explicit `event_types`, else derived from which
   callbacks are set; `on_event` = catch-all), name filter (skipped for ERROR), then
   `on_event($event)` and one of `on_added/on_modified/on_deleted($object)`;
   `on_error` gets the **raw hashref** for ERROR events. Callbacks are not eval-guarded.
-- `stop` defers `$f->cancel` via `$loop->later` — cancelling inside the connection's
-  own `on_read` triggers Net::Async::HTTP's "Spurious on_read of connection while
-  idle". Any new cancel path must defer the same way.
 
 ## Controller runtime
 
@@ -107,9 +208,10 @@ empty content). Override points the test harness replaces: `_do_request`,
   entry, and both would otherwise cycle (`kube → children → controller → kube`, and
   `controller → entries → ctx → controller` closing on itself). Valid for the whole
   reconcile including chained Futures; a ctx kept past that keeps nothing alive.
-- Watch ERROR events reach `on_watch_error($error, {controller,kube,resource})`, not
-  the workqueue — they carry a raw `Status` hashref with no key to dedup on. An
-  `on_error` passed to `watch_resource` takes precedence for that watch.
+- Watch ERROR events and the watcher's `WatchFailed` reports reach
+  `on_watch_error($error, {controller,kube,resource})`, not the workqueue — they carry
+  a `Status` hashref with no key to dedup on. An `on_error` passed to
+  `watch_resource` takes precedence for that watch.
 - `stop` is teardown, not pause: it stops each watch **and detaches it from the
   client** (`remove_from_parent` — `kube->watcher` had `add_child`ed it), clears the
   queue plus the `queued`/`dirty` flags, and drops retry timers. Failure counts stay.
@@ -138,8 +240,9 @@ empty content). Override points the test harness replaces: `_do_request`,
   detection = regex `/"status"\s*:\s*"Failure"/i` on the ch3 payload. Requires
   `sh`+`head` / `cat` in the container. **Not tar** — `Changes` 0.006/0.007 wording
   is stale.
-- All duplex/cp paths require the client to already be in a loop; the failure message
-  hardcodes "port_forward" regardless of caller (known defect).
+- All duplex/cp paths require the client to already be in a loop; `_do_duplex_request`
+  names the calling method via its `caller =>` argument, the cp helpers check the loop
+  themselves.
 
 ## TLS / auth
 
@@ -152,6 +255,8 @@ empty content). Override points the test harness replaces: `_do_request`,
   pass-through; inline `ssl_*_pem` from kubeconfig is materialized to `File::Temp`
   files (handles retained in `{_ssl_tempfiles}` for the client's lifetime, so paths
   stay valid); `*_pem` wins over same-kind `*_file`. No SNI/`SSL_hostname` is set.
+- https/wss need `IO::Async::SSL`, which Net::Async::HTTP / WebSocket only recommend;
+  the cpanfile requires it.
 
 ## Test harness — dual-mode
 
@@ -160,15 +265,25 @@ empty content). Override points the test harness replaces: `_do_request`,
 `make_kube()` returns a mocked client (`https://mock.local`, `MockTransport::install`)
 or a live one from the kubeconfig; both added to the process-wide memoized `loop()`.
 
-- `MockTransport::install($kube)` monkeypatches **the class** (`_do_request`,
-  `_do_streaming_request`, `_do_duplex_request`, `_add_to_loop` → no-op). Irreversible
-  per process — never mix a real client into a file that calls `install`.
-- Registration: `reset()` first; `mock_response($method,$path,$data,$status)` — key is
-  `"METHOD path"` **including the query string** (sorted asciibetical by key, as
-  `prepare_request` builds it); `mock_watch_events($path,\@events,\%opts)` (`complete`
-  ⇒ resolve → reconnect; `fail` ⇒ 1 s retry; no opts ⇒ pending until `stop`);
+- `MockTransport::install($kube)` monkeypatches **the class** `ref($kube)`
+  (`_do_request`, `_do_streaming_request`, `_do_duplex_request`, `_add_to_loop` →
+  no-op). Irreversible per process — never mix a real client into a file that calls
+  `install`. A test subclass of the client gets its own patched copy.
+- Registration: `reset()` first; `mock_response($method,$path,$data,$status,\%opts)` —
+  key is `"METHOD path"` **including the query string** (sorted asciibetical by key,
+  as `prepare_request` builds it); `{delay => 1}` resolves one tick later, which makes
+  wrongly-parallel orchestration visible in `request_log`. `mock_response_queue(
+  $method,$path,[$data,$status],...)` answers one entry per request (FIFO), then falls
+  back to `mock_response`/404 — for 409 races and retries. Unregistered → 404 Status.
+  `mock_watch_events($path,\@events,\%opts)` (`complete` ⇒ resolve → reconnect;
+  `fail` ⇒ backoff retry; `status` ⇒ response code; no opts ⇒ pending until `stop`);
   `mock_stream_chunks` for `log()`; `mock_duplex_session`. Streaming/duplex paths are
   matched **without** query string. Inspect via `last_request()`/`request_log()`.
+- Discovery in mock mode (`t/32-mock-unstructured.t`): a client subclass overrides
+  `rest` to build the `Kubernetes::REST` with an `io` (consumes
+  `Kubernetes::REST::Role::IO`; needs `call` and `call_streaming`) that answers
+  `GET /api` / `GET /apis` with an `APIGroupDiscoveryList`. Resource requests still go
+  through the mocked `_do_request`; assert the io saw only discovery.
 - The mocked `_do_duplex_request` never invokes callbacks — exec/attach/cp behavior is
   tested by `local *Net::Async::Kubernetes::exec` / `_make_websocket_client`
   monkeypatching instead (see `t/13-duplex-transport.t`, `t/16-mock-cp.t`).
@@ -180,20 +295,18 @@ or a live one from the kubeconfig; both added to the process-wide memoized `loop
 - Mode map: `10-dual-*`/`11-dual-*` = dual (TestKube); `01-crud.t`/`02-watcher.t` =
   live-only (`skip_all` without kubeconfig); everything else mock-only, no cluster.
   Note: `12-` is used twice (`12-controller.t`, `12-mock-port-forward.t`).
+- A call that may still die synchronously goes through `eval` in the test
+  (`my $r = eval { $kube->x(...)->get }; is($@, '', ...)`) — an uncaught die ends the
+  whole file, not just the subtest.
 - Run: `prove -l t/` (mock) · `TEST_KUBERNETES_REST_KUBECONFIG=~/.kube/config
   prove -lv t/` (live, minikube only — mutates the cluster).
 
 ## Invariants & traps
 
-- `list()` returns `IO::K8s::List` — always `->items`. (POD claiming ArrayRef is a
-  known defect.)
-- Error style is mixed: most argument validation returns a synchronously failed
-  Future, but `update()` **croaks** on missing metadata/name; `check_response` croaks
-  inside `->then` (becomes failed Future).
+- `list()` returns `IO::K8s::List` — always `->items`.
 - Never `->get` a Future inside a callback (watcher/reconcile/on_frame) — deadlock.
-- Retention: Watcher weakens `kube` (never keeps the client alive — GC'd client ⇒
-  watch dies silently). Controller does **not** weaken and is `add_child`ed by the
-  client ⇒ reference cycle; remove explicitly when done.
+- Retention: Watcher and Controller both weaken `kube` (a client the Controller built
+  itself is held strongly — it owns it). A GC'd client ⇒ its watches die silently.
 - `watcher()`/`controller()` already `add_child` — never `$loop->add` the child again.
   A watcher created before the client is in a loop starts when the client is added.
 - No URI escaping anywhere in path or parameters — special chars in names, label
@@ -201,8 +314,17 @@ or a live one from the kubeconfig; both added to the process-wide memoized `loop
 - `sub delete`/`exec`/`log` shadow builtins in the client package (and `close` in
   PortForwardSession) — fine as methods, but bareword calls inside those packages hit
   CORE.
-- cpanfile pins: `Kubernetes::REST >= 1.106`, `IO::K8s >= 1.105`, `IO::Async >= 0.80`,
-  `Net::Async::HTTP >= 0.49`, `Net::Async::WebSocket::Client >= 0.14`, perl 5.020.
-  Both K8s deps are Getty dists — pin released CPAN versions only (skill `getty-perl-core`).
+- cpanfile pins: `Kubernetes::REST >= 1.108`, `IO::K8s >= 1.108`, `IO::Async >= 0.80`,
+  `IO::Async::SSL >= 0.12`, `Net::Async::HTTP >= 0.49`,
+  `Net::Async::WebSocket::Client >= 0.14`, `Future >= 0.47`, perl 5.020. Both K8s deps
+  are Getty dists — pin released CPAN versions only (skill `getty-perl-core`).
+- The locally installed Kubernetes::REST / IO::K8s is often ahead of the pin. Check
+  behaviour that matters against the pinned release — `git archive <tag> lib` from the
+  sibling repo into a scratch dir, then `prove -l -I<dir>/lib …`.
+- Kubernetes::REST 1.108's `inflate_object`/`inflate_list`/`process_watch_chunk`
+  resolve the class name again: a single-segment class (`'+Gizmo'` → `Gizmo`) is read
+  as a Kind — dies, drops list items, or inflates as whatever the map's short key
+  `Gizmo` names. Fixed in 1.109 (its k42); until the pin moves, the client's own
+  `'+'.$class` hand-off covers only `_manifest_to_object`.
 - POD style is inline `=method`/`=attr` next to the sub (`Kubernetes.pm`,
   `Watcher.pm`); `Controller.pm` keeps its POD in `__END__` — match per-file.
