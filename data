@@ -1,0 +1,19 @@
+---
+claimed_at: 2026-09-27T21:23:20Z
+claimed_by: backlog-5
+class: standard
+completed: 2026-09-27T21:23:16Z
+created: 2026-09-27T20:19:38Z
+id: 64
+priority: low
+started: 2026-09-27T20:35:46Z
+status: done
+tags:
+- delete
+title: 'delete: Meldungen an Kubernetes::REST k49 angleichen'
+updated: 2026-09-27T21:23:20Z
+---
+
+Aus k60 (2026-09-27). REST (k49) meldet Unknown propagationPolicy 'x' for delete() (use: ...) und Unknown argument 'x' to delete(), der Async-Client ... for delete (allowed: ...) bzw. unknown option 'x' for delete (known: ...). Semantik gleich; Wortlaut angleichen.
+
+Commit c03f2bf
