@@ -1,0 +1,22 @@
+---
+claimed_at: 2026-09-27T01:36:47Z
+claimed_by: nak-followups
+class: standard
+completed: 2026-09-27T01:36:47Z
+created: 2026-09-27T00:27:42Z
+id: 44
+priority: low
+started: 2026-09-27T01:04:24Z
+status: done
+tags:
+- controller
+title: Controller patch_status ohne status auf Klasse ohne status-Attribut stirbt
+  synchron
+updated: 2026-09-27T01:36:47Z
+---
+
+Controller patch_status in Objektform ohne status-Argument ruft die status-Methode des Objekts; hat die Klasse keine, stirbt der Aufruf synchron mit Cant locate object method status statt ein failed Future mit status required zu liefern. Vorbestehend, in k38 unverändert.
+
+Umgesetzt auf feat/status-ensure, uncommittet. Worker-Lauf prove -lr t/ Mock-Modus 30 Dateien 240 Tests PASS, dzil build sauber.
+
+Committed ff0cfcb (Fail the controller's patch_status Future for a class without a status attribute, k44). Verified in isolated worktree: prove -lr t/ mock mode, 29 files, 236 tests, PASS.
