@@ -22,7 +22,7 @@ is hand-written in every module; dzil bumps it.
   `patch_status` (PATCH `.../status`, default type `merge`) / `update_status` (PUT
   `.../status`, whole object) → inflated object, `delete` → `1` (`propagationPolicy`
   Background|Foreground|Orphan as query parameter; any other value or unknown option key
-  fails the Future), `ensure` → object,
+  fails the Future, worded as in Kubernetes::REST), `ensure` → object,
   `ensure_all` → objects in input order, `ensure_only` → the applied objects,
   `discover` → nothing (see Unstructured and discovery), `log` →
   full text or `undef` with `on_line`, `port_forward`/`exec`/`attach` → session,
@@ -98,7 +98,10 @@ contract. So does `_unknown_argument_error($label, \%args, @allowed)` (k63): the
 first unknown key in sort order as `Unknown argument 'KEY' to METHOD() (allowed:
 a, b)` — Kubernetes::REST's wording — checked right after argument parsing, before
 class resolution, in `list` (`_list_request`), `get`, `log`, `patch`/`patch_status`
-(`_patch_args`; object form only `patch`, `type`) and `ensure_only` (croaks).
+(`_patch_args`; object form only `patch`, `type`) and `ensure_only` (croaks);
+`delete` uses it too (k64), after its class and name checks as since k60, and
+`_propagation_policy_error` words a bad policy as REST does: `Unknown
+propagationPolicy 'x' for delete() (use: Background, Foreground, Orphan)`.
 `watcher` needs none: `IO::Async::Notifier::configure` croaks on an
 unknown key. **Input errors known before any request croak synchronously** in
 `expand_class`, when a watcher starts, and in `update`, `update_status`, `ensure`

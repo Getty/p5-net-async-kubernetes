@@ -1135,8 +1135,10 @@ C<Foreground> before it, C<Orphan> leaves them. Without it the API server
 applies the resource's own default -- for a C<Job> that orphans its Pods.
 Any other value, and any option C<delete> does not know (a misspelt
 C<propagationPolicy> would otherwise be dropped silently), fails the
-L<Future> before a request is sent; the message lists the allowed values or
-options.
+L<Future> before a request is sent, worded as L<Kubernetes::REST> words it:
+C<Unknown propagationPolicy 'x' for delete() (use: Background, Foreground,
+Orphan)>, or C<Unknown argument 'x' to delete() (allowed: ...)> naming the
+first unknown option.
 
 Arguments:
 
@@ -1176,12 +1178,12 @@ sub _unknown_argument_error {
 my @PROPAGATION_POLICIES = qw( Background Foreground Orphan );
 
 # Nothing when $policy is absent or one of @PROPAGATION_POLICIES, else the
-# message for it, naming $label.
+# message for it, naming $label - in Kubernetes::REST's wording.
 sub _propagation_policy_error {
     my ($self, $label, $policy) = @_;
     return if !defined $policy || grep { $policy eq $_ } @PROPAGATION_POLICIES;
-    return "unknown propagationPolicy '$policy' for $label"
-        . ' (allowed: ' . join(', ', @PROPAGATION_POLICIES) . ')';
+    return "Unknown propagationPolicy '$policy' for $label() (use: "
+        . join(', ', @PROPAGATION_POLICIES) . ')';
 }
 
 # delete() up to the response, unchecked: resolves with the class and the raw
@@ -1228,10 +1230,8 @@ sub _delete_request {
     }
 
     my $policy = delete $options{propagationPolicy};
-    if (my @unknown = sort keys %options) {
-        return Future->fail(sprintf('unknown option%s %s for delete (known: %s)',
-            @unknown > 1 ? 's' : '', join(', ', map { "'$_'" } @unknown), join(', ', @known)));
-    }
+    my $unknown = $self->_unknown_argument_error('delete', \%options, @known);
+    return Future->fail($unknown) if defined $unknown;
     my $policy_error = $self->_propagation_policy_error('delete', $policy);
     return Future->fail($policy_error) if defined $policy_error;
 

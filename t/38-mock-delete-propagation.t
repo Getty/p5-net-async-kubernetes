@@ -13,9 +13,10 @@ use MockTransport;
 # API server applies the resource's default, which for a Job is to orphan
 # its Pods. A value the API server does not know, and any option delete()
 # does not know - a typo would silently drop the policy - fail the Future
-# before a request is sent. ensure_only() prunes with propagationPolicy
-# Background unless told otherwise, and ensure() deletes a failed Job with
-# Background before recreating it.
+# before a request is sent - worded as Kubernetes::REST words them (karr
+# k64), naming only the first unknown option. ensure_only() prunes with
+# propagationPolicy Background unless told otherwise, and ensure() deletes a
+# failed Job with Background before recreating it.
 #
 # Mock-only: the policy is checked in the query string of the request.
 
@@ -47,7 +48,7 @@ my $JOBS      = '/apis/batch/v1/namespaces/default/jobs';
 my $CMS       = '/api/v1/namespaces/default/configmaps';
 my $SUCCESS   = { kind => 'Status', apiVersion => 'v1', status => 'Success' };
 my $NOT_FOUND = { kind => 'Status', status => 'Failure', message => 'not found', code => 404 };
-my $ALLOWED   = qr/\(allowed: Background, Foreground, Orphan\)/;
+my $USE       = qr/\(use: Background, Foreground, Orphan\)/;
 
 sub job {
     my ($kube, %status) = @_;
@@ -102,7 +103,7 @@ subtest 'an unknown propagationPolicy fails the Future before a request' => sub 
         my ($form, $code) = @$call;
         my $f = eval { $code->() };
         is($@, '', "$form form: delete does not croak");
-        like(failure_of($f) // '', qr/unknown propagationPolicy '[^']*' for delete $ALLOWED/,
+        like(failure_of($f) // '', qr/\AUnknown propagationPolicy '[^']*' for delete\(\) $USE\z/,
             "$form form: the failure names the allowed values");
     }
     is_deeply([ MockTransport::request_log ], [], 'no request was sent');
@@ -112,13 +113,13 @@ subtest 'an unknown option fails the Future before a request' => sub {
     my $kube = make_kube();
     for my $call (
         [ 'object, typo'      => sub { $kube->delete(job($kube), propagation_policy => 'Background') },
-          qr/unknown option 'propagation_policy' for delete \(known: propagationPolicy\)/ ],
+          qr/\AUnknown argument 'propagation_policy' to delete\(\) \(allowed: propagationPolicy\)\z/ ],
         [ 'object, namespace' => sub { $kube->delete(job($kube), namespace => 'other') },
-          qr/unknown option 'namespace' for delete \(known: propagationPolicy\)/ ],
+          qr/\AUnknown argument 'namespace' to delete\(\) \(allowed: propagationPolicy\)\z/ ],
         [ 'shorthand, typo'   => sub { $kube->delete('Job', 'job1', namespace => 'default', propagationpolicy => 'Background') },
-          qr/unknown option 'propagationpolicy' for delete \(known: name, namespace, propagationPolicy\)/ ],
+          qr/\AUnknown argument 'propagationpolicy' to delete\(\) \(allowed: name, namespace, propagationPolicy\)\z/ ],
         [ 'keyed, two typos'  => sub { $kube->delete('Job', name => 'job1', gracePeriod => 0, force => 1) },
-          qr/unknown options 'force', 'gracePeriod' for delete \(known: name, namespace, propagationPolicy\)/ ],
+          qr/\AUnknown argument 'force' to delete\(\) \(allowed: name, namespace, propagationPolicy\)\z/ ],
         [ 'object, odd list'  => sub { $kube->delete(job($kube), 'propagationPolicy') },
           qr/\AInvalid arguments to delete\(\)\z/ ],
     ) {
@@ -172,7 +173,7 @@ subtest 'ensure_only prunes with propagationPolicy Background by default' => sub
 
     $setup->();
     my $croak = eval { $kube->ensure_only(@args, propagationPolicy => 'orphan'); 1 } ? '' : $@;
-    like($croak, qr/\Aunknown propagationPolicy 'orphan' for ensure_only $ALLOWED at /,
+    like($croak, qr/\AUnknown propagationPolicy 'orphan' for ensure_only\(\) $USE at /,
         'an unknown propagationPolicy croaks');
     is_deeply([ MockTransport::request_log ], [], 'before any request');
 };

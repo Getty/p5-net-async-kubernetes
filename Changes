@@ -164,11 +164,14 @@ Revision history for Net-Async-Kubernetes
    it; without it the API server's default applies, which for a Job orphans
    its Pods. Any other value, and any option `delete` does not know, fails
    the Future before a request is sent, so a misspelt option no longer goes
-   unnoticed; the object form, which ignored every extra argument, now takes
-   only `propagationPolicy`. `ensure_only` prunes with `Background` unless
-   its new `propagationPolicy` option says otherwise (an unknown value
-   croaks), and `ensure` deletes a failed Job with `Background` before
-   recreating it.
+   unnoticed; the messages are worded as in `Kubernetes::REST`
+   (`Unknown propagationPolicy 'x' for delete() (use: Background,
+   Foreground, Orphan)`, `Unknown argument 'x' to delete() (allowed: ...)`).
+   The object form, which ignored every extra argument, now takes only
+   `propagationPolicy`. `ensure_only` prunes with `Background` unless its
+   new `propagationPolicy` option says otherwise (an unknown value croaks,
+   worded the same way), and `ensure` deletes a failed Job with
+   `Background` before recreating it.
  - Fail Futures for a refusal of the API server (status 400 and up) the way
    Future's convention has it: `->fail($error, 'http', $response)`. `$error`
    is exactly what `Kubernetes::REST`'s `check_response` throws - the
