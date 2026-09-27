@@ -408,6 +408,12 @@ carries -- the two forms can and do point at different classes:
 This qualified form is accepted anywhere a resource name is, including
 C<list>, C<get>, and C<watcher>.
 
+The result is a plain class name, without a C<+>. Handed back to a method
+that resolves names again -- L</new_object>, L<IO::K8s/struct_to_object> --
+a single-segment class of your own (C<'+Gizmo'> in the L</resource_map>,
+returned as C<'Gizmo'>) reads as the Kind C<Gizmo> there. Prefix it with
+C<+> when you do that yourself; L</ensure> already does.
+
 Croaks when the name cannot be resolved to an IO::K8s class -- a qualified
 name no class serves, and equally a bare Kind no class ships for (C<'Bogus'>),
 which L<Kubernetes::REST/expand_class> would hand back as a fabricated
@@ -976,14 +982,19 @@ sub _request_unchecked {
 # different endpoint and schema than an autoscaling/v1 manifest). Without an
 # apiVersion the bare Kind resolves as it always did. Either way the class
 # must be usable (_usable_class): one that does not load croaks with its load
-# error. $label only appears in croak messages.
+# error. The class is resolved here, so it goes to struct_to_object with a
+# '+', which IO::K8s takes as that exact class: struct_to_object resolves a
+# plain name again, and a single-segment class of the caller's own ('+Gizmo'
+# in the resource_map, which expand_class returns as 'Gizmo') reads to it as
+# the Kind Gizmo - IO::K8s::Gizmo, or whatever class the map gives that Kind.
+# $label only appears in croak messages.
 sub _manifest_to_object {
     my ($self, $label, $manifest) = @_;
     my $kind = $manifest->{kind} or croak "$label: hashref must have 'kind'";
     my $api_version = $manifest->{apiVersion};
     my $rest = $self->_rest;
 
-    return $rest->k8s->struct_to_object($self->expand_class($kind), $manifest)
+    return $rest->k8s->struct_to_object('+' . $self->expand_class($kind), $manifest)
         unless defined $api_version && length $api_version;
 
     my $resolved = $rest->expand_class($kind, $api_version)
@@ -991,7 +1002,7 @@ sub _manifest_to_object {
             . " (add it to resource_map if it is a CRD)";
     my ($class, $error) = $self->_usable_class("$api_version/$kind", $resolved);
     croak "$label: $error" unless defined $class;
-    return $rest->k8s->struct_to_object($class, $manifest);
+    return $rest->k8s->struct_to_object('+' . $class, $manifest);
 }
 
 # The apiVersion and Kind an object is an instance of, for ensure() and
