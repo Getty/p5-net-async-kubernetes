@@ -1,0 +1,22 @@
+---
+claimed_at: 2026-09-27T00:00:26Z
+claimed_by: status-ensure
+class: standard
+completed: 2026-09-27T00:00:26Z
+created: 2026-09-26T21:56:14Z
+id: 37
+priority: high
+started: 2026-09-26T21:56:19Z
+status: done
+tags:
+- api
+- bug
+title: list() verwirft labelSelector und fieldSelector still
+updated: 2026-09-27T00:00:26Z
+---
+
+Repro: list Pod mit namespace default und labelSelector app=web schickt GET /api/v1/namespaces/default/pods ohne Query, liefert also ungefiltert alle Pods. Kubernetes::REST list zieht labelSelector und fieldSelector vor build_path heraus und hängt sie als Query-Parameter an; der Async-Client reicht sie an build_path durch, wo sie verschwinden. Voraussetzung für ensure_only (k35), das sonst alles Nicht-Erwartete der Kind löschen würde. Done: Regressionstest, beide Selector als Query-Parameter, Parität zur REST-Semantik.
+
+Umgesetzt auf feat/status-ensure, uncommittet. prove -lr t/ im Mock-Modus 26 Dateien 214 Tests PASS, dzil build sauber, gebaute Suite PASS. Wartet auf Commit durch nak-release-manager.
+
+2026-09-27 00:00 Committed as ef2e1ae on feat/status-ensure: list selectors sent as query parameters, POD updated, t/23-mock-list-selectors.t added, Changes entry added. Verified in isolated worktree: prove -lr t/ mock mode, 22 files, 175 tests, PASS.
