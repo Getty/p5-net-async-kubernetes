@@ -94,7 +94,13 @@ the resource:
   `ensure`); not blessed → "requires an IO::K8s object".
 
 All three return the class or `(undef, $message)`; the caller reports it per its
-contract. **Input errors known before any request croak synchronously** in
+contract. So does `_unknown_argument_error($label, \%args, @allowed)` (k63): the
+first unknown key in sort order as `Unknown argument 'KEY' to METHOD() (allowed:
+a, b)` — Kubernetes::REST's wording — checked right after argument parsing, before
+class resolution, in `list` (`_list_request`), `get`, `log`, `patch`/`patch_status`
+(`_patch_args`; object form only `patch`, `type`) and `ensure_only` (croaks).
+`watcher` needs none: `IO::Async::Notifier::configure` croaks on an
+unknown key. **Input errors known before any request croak synchronously** in
 `expand_class`, when a watcher starts, and in `update`, `update_status`, `ensure`
 (incl. `ensure_only`'s hashref resolution and missing `label`); every other
 Future-returning method returns `Future->fail($message)`. `ensure_all` never croaks —

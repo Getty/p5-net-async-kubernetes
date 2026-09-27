@@ -203,6 +203,16 @@ Revision history for Net-Async-Kubernetes
    `http` and the response; legacy discovery (Kubernetes before 1.27) is
    left to the synchronous read on first use; without
    `resource_map_from_cluster` nothing is sent.
+ - Refuse an option `list`, `get`, `log`, `patch`, `patch_status` or
+   `ensure_only` does not take, instead of dropping it silently: a
+   misspelt `labelselector` listed every object, `tail_lines` fetched the
+   whole log, and `namespace` for `namespaces` made `ensure_only` prune at
+   cluster scope only. The message names the first such option and those
+   the method takes, as `Kubernetes::REST` words it (`Unknown argument
+   'tail_lines' to log() (allowed: ...)`); `ensure_only` croaks, the others
+   fail their Future, before any request. `list` takes only `namespace`,
+   `labelSelector` and `fieldSelector`, and the object forms of `patch` and
+   `patch_status` only `patch` and `type`.
 
 0.008     2026-09-22 04:13:56Z
  - Add public `rest` and `new_object($kind, %fields)` on the client: the

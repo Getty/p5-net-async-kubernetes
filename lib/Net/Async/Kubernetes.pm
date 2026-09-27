@@ -663,6 +663,9 @@ IO::K8s objects.
 
 C<labelSelector> and C<fieldSelector> are sent as query parameters, so
 filtering happens server-side rather than on the list that comes back.
+Any other option -- a misspelt C<labelselector> would otherwise list every
+object -- fails the L<Future> before a request is sent, naming the options
+C<list> takes.
 
 Arguments:
 
@@ -673,7 +676,7 @@ qualified C<'group/version/Kind'> name to pin a specific API version -- see
 L</expand_class>
 
 =item C<%args> - Optional parameters: C<namespace>, C<labelSelector>,
-C<fieldSelector>, etc.
+C<fieldSelector>
 
 =back
 
@@ -686,6 +689,10 @@ C<fieldSelector>, etc.
 # back out of the text check_response croaks with.
 sub _list_request {
     my ($self, $short_class, %args) = @_;
+
+    my $unknown = $self->_unknown_argument_error('list', \%args,
+        qw( namespace labelSelector fieldSelector ));
+    return Future->fail($unknown) if defined $unknown;
 
     my $rest = $self->_rest;
     my ($class, $error) = $self->_resolve_class($short_class);
@@ -721,6 +728,8 @@ sub get {
     } else {
         return Future->fail("Invalid arguments to get()");
     }
+    my $unknown = $self->_unknown_argument_error('get', \%args, qw( name namespace ));
+    return Future->fail($unknown) if defined $unknown;
 
     my ($class, $error) = $self->_resolve_class($short_class);
     return Future->fail($error) unless defined $class;
@@ -742,7 +751,8 @@ sub get {
     my $pod = $future->get;
 
 Get a single resource by name. Returns a L<Future> that resolves to an
-inflated IO::K8s object.
+inflated IO::K8s object. An option other than C<name> and C<namespace> fails
+the L<Future> before a request is sent.
 
 Arguments:
 
@@ -753,7 +763,7 @@ C<'group/version/Kind'> name -- see L</expand_class>
 
 =item C<$name> - Resource name (required)
 
-=item C<%args> - Optional parameters (C<namespace>, etc.)
+=item C<%args> - Optional parameters: C<namespace>
 
 =back
 
@@ -916,6 +926,8 @@ sub _patch_args {
         $name = $metadata->name or return "object must have metadata.name";
         $namespace = $metadata->namespace;
         my %args = @rest_args;
+        my $unknown = $self->_unknown_argument_error($label, \%args, qw( patch type ));
+        return $unknown if defined $unknown;
         $patch = $args{patch} // return "$label requires 'patch' parameter";
         $patch_type = $args{type} // $default_type;
     } else {
@@ -928,6 +940,9 @@ sub _patch_args {
         } else {
             return "Invalid arguments to $label()";
         }
+        my $unknown = $self->_unknown_argument_error($label, \%args,
+            qw( name namespace patch type ));
+        return $unknown if defined $unknown;
 
         ($class, my $error) = $self->_resolve_class($class_or_object);
         return $error unless defined $class;
@@ -984,9 +999,11 @@ sub patch {
 
 Patch an existing resource. Returns a L<Future> that resolves to the patched
 object. Bad arguments -- among them an object that is no Kubernetes
-resource, such as an L<IO::K8s::List> or a nested C<PodSpec>, and a plain
-reference such as a manifest hashref in place of the resource name -- fail
-the L<Future> before a request is sent.
+resource, such as an L<IO::K8s::List> or a nested C<PodSpec>, a plain
+reference such as a manifest hashref in place of the resource name, and an
+option not listed below (in the object form C<name> and C<namespace> come
+from the object and are refused as options too) -- fail the L<Future> before
+a request is sent.
 
 Arguments:
 
@@ -1049,8 +1066,9 @@ and still answers 2xx -- so a C<status> written via L</patch> or L</update>
 is silently discarded. This method writes to C</status> instead.
 
 Takes the same call forms and arguments as L</patch> (object, or class plus
-name in either the shorthand or fully-keyed form). The patch document is
-sent unchanged and carries its own C<status> key.
+name in either the shorthand or fully-keyed form), and refuses any other
+option the same way. The patch document is sent unchanged and carries its
+own C<status> key.
 
 The default patch type is C<merge>, not C<strategic> as in L</patch>: custom
 resources reject strategic merge patch with a 415, and C<merge> works for
@@ -1137,6 +1155,21 @@ optional
 =back
 
 =cut
+
+# The message for the first key of %$args (in sort order) that is not in
+# @allowed, or nothing when there is none - Kubernetes::REST's wording, naming
+# $label and what is allowed. Each caller reports it per its contract, a
+# failed Future or a croak, before any request: an option a method does not
+# take would otherwise be dropped silently (a misspelt labelSelector lists
+# everything, namespace for namespaces makes ensure_only prune at cluster
+# scope only).
+sub _unknown_argument_error {
+    my ($self, $label, $args, @allowed) = @_;
+    my %allowed = map { $_ => 1 } @allowed;
+    my ($unknown) = sort grep { !$allowed{$_} } keys %$args;
+    return unless defined $unknown;
+    return "Unknown argument '$unknown' to $label() (allowed: " . join(', ', @allowed) . ')';
+}
 
 # The propagationPolicy values the API server accepts in a DELETE's
 # DeleteOptions.
@@ -1511,6 +1544,12 @@ L</ensure>
 sub ensure_only {
     my ($self, %args) = @_;
 
+    # Before anything is applied: namespace for namespaces would prune at
+    # cluster scope only.
+    my $unknown = $self->_unknown_argument_error('ensure_only', \%args,
+        qw( label objects kinds namespaces propagationPolicy ));
+    croak $unknown if defined $unknown;
+
     my $rest       = $self->_rest;
     my $label      = $args{label} or croak "ensure_only requires 'label'";
     # Background unless told otherwise: the API server's own default leaves
@@ -1636,8 +1675,10 @@ sub ensure_only {
 Like L</ensure_all>, but also deletes anything matching the label selector in
 the given kinds and namespaces that is not present in C<objects>. Use this
 for resources where stale objects must not survive (e.g. RBAC). Croaks
-synchronously if C<label> is missing, or if C<propagationPolicy> is none of
-the values L</delete> accepts.
+synchronously if C<label> is missing, if C<propagationPolicy> is none of
+the values L</delete> accepts, or on any option not listed below -- a
+C<namespace> meant as C<namespaces> would otherwise prune at cluster scope
+only.
 
 Hashrefs in C<objects> are resolved as in L</ensure>, all of them before the
 first request: one without C<kind> or with an C<apiVersion> no class serves
@@ -1715,6 +1756,9 @@ sub log {
     } else {
         return Future->fail("Invalid arguments to log()");
     }
+    my $unknown = $self->_unknown_argument_error('log', \%args, qw( name namespace container
+        follow tailLines sinceSeconds sinceTime timestamps previous limitBytes on_line ));
+    return Future->fail($unknown) if defined $unknown;
 
     return Future->fail("name required for log") unless $args{name};
 
@@ -1798,6 +1842,12 @@ Without C<on_line>, returns a L<Future> that resolves to the full log text.
 With C<on_line>, opens a streaming request and invokes the callback once per
 line with L<Kubernetes::REST::LogEvent> objects. The returned L<Future>
 resolves when the stream ends.
+
+Besides C<name>, C<namespace> and C<on_line> it takes the options
+C<container>, C<follow>, C<tailLines>, C<sinceSeconds>, C<sinceTime>,
+C<timestamps>, C<previous> and C<limitBytes>, sent as query parameters. Any
+other -- C<tail_lines> would otherwise fetch the whole log -- fails the
+L<Future> before a request is sent.
 
 =cut
 
