@@ -1,0 +1,21 @@
+---
+claimed_at: 2026-09-27T19:37:23Z
+claimed_by: backlog-2
+class: standard
+completed: 2026-09-27T19:37:23Z
+created: 2026-09-27T02:50:30Z
+id: 49
+priority: low
+started: 2026-09-27T03:36:58Z
+status: done
+tags:
+- ensure
+title: 'ensure: Job-Sonderfall auch nach 409 beim Create'
+updated: 2026-09-27T19:37:23Z
+---
+
+Spiegelt kubernetes-rest k41. Entsteht ein batch/v1 Job zwischen GET und POST, behandelt ensure ihn nach dem 409 wie im Hauptpfad: aktiv oder erfolgreich wird zurückgegeben, sonst löschen und neu anlegen; kein PUT auf die unveränderliche Pod-Vorlage.
+
+Umgesetzt auf fix/backlog-3, uncommittet. prove -lr t/ Mock-Modus 37 Dateien 285 Tests PASS, auch gegen installiertes Kubernetes::REST mit k43 (Orchestrator-Gegenprobe) und gegen gepinnte 1.108 (Worker).
+
+2026-09-27 19:37 Committed as eba68e6 on fix/backlog-3. prove -lr t/ mock mode in an isolated worktree at this commit: Files=36, Tests=281, PASS.
