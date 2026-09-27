@@ -332,23 +332,20 @@ sub list_objects {
     return $self->kube->list(@args);
 }
 
+# The controller keeps its own signature - a status => {...} argument instead
+# of a patch document, merge as the default type - and builds the patch from
+# it; resolving the target, the request and the response are the client's
+# patch_status. Every other argument check (metadata, name, patch type,
+# unknown resource) happens there and comes back as a failed Future too.
 sub patch_status {
     my ($self, $class_or_object, @rest_args) = @_;
 
-    my $rest = $self->kube->_rest;
-    my ($class, $name, $namespace, $status, $patch_type);
-
+    my (%args, @target);
     if (ref($class_or_object) && blessed($class_or_object)) {
-        my $object = $class_or_object;
-        $class = ref($object);
-        my $metadata = $object->metadata or return Future->fail("object must have metadata");
-        $name = $metadata->name or return Future->fail("object must have metadata.name");
-        $namespace = $metadata->namespace;
-        my %args = @rest_args;
-        $status = $args{status} // $object->status // return Future->fail("status required for patch_status");
-        $patch_type = $args{type} // 'merge';
+        %args = @rest_args;
+        $args{status} //= $class_or_object->status;
+        @target = ($class_or_object);
     } else {
-        my %args;
         if (@rest_args >= 1 && !ref($rest_args[0]) && $rest_args[0] !~ /^(name|namespace|status|type)$/) {
             $args{name} = shift @rest_args;
             %args = (%args, @rest_args);
@@ -357,53 +354,25 @@ sub patch_status {
         } else {
             return Future->fail("Invalid arguments to patch_status()");
         }
-
-        $class = $rest->expand_class($class_or_object)
-            // return Future->fail(
-                $self->kube->_unknown_resource_error($class_or_object));
-        $name = $args{name} or return Future->fail("name required for patch_status");
-        $namespace = $args{namespace};
-        $status = $args{status} // return Future->fail("status required for patch_status");
-        $patch_type = $args{type} // 'merge';
+        @target = ($class_or_object, name => $args{name}, namespace => $args{namespace});
     }
+    return Future->fail("status required for patch_status") unless defined $args{status};
 
-    my %patch_types = (
-        strategic => 'application/strategic-merge-patch+json',
-        merge     => 'application/merge-patch+json',
-        json      => 'application/json-patch+json',
+    return $self->kube->patch_status(@target,
+        patch => { status => $args{status} },
+        type  => $args{type} // 'merge',
     );
-    my $content_type = $patch_types{$patch_type}
-        // return Future->fail("Unknown patch type '$patch_type'");
-
-    my $path = $rest->build_path($class, name => $name, namespace => $namespace) . '/status';
-    my $req = $rest->prepare_request('PATCH', $path,
-        body => { status => $status },
-        content_type => $content_type,
-    );
-
-    return $self->kube->_do_request($req)->then(sub {
-        my ($response) = @_;
-        $rest->check_response($response, "patch status $class");
-        return Future->done($rest->inflate_object($class, $response));
-    });
 }
 
 sub update_status {
     my ($self, $object) = @_;
-    my $rest = $self->kube->_rest;
-    my $class = ref($object);
+
+    # The client's update_status croaks on these two; the controller's helpers
+    # report every error as a failed Future.
     my $metadata = $object->metadata or return Future->fail("object must have metadata");
-    my $name = $metadata->name or return Future->fail("object must have metadata.name");
-    my $namespace = $metadata->namespace;
+    $metadata->name or return Future->fail("object must have metadata.name");
 
-    my $path = $rest->build_path($class, name => $name, namespace => $namespace) . '/status';
-    my $req = $rest->prepare_request('PUT', $path, body => $object->TO_JSON);
-
-    return $self->kube->_do_request($req)->then(sub {
-        my ($response) = @_;
-        $rest->check_response($response, "update status $class");
-        return Future->done($rest->inflate_object($class, $response));
-    });
+    return $self->kube->update_status($object);
 }
 
 1;
@@ -429,7 +398,7 @@ __END__
         on_reconcile => sub {
             my ($ctx) = @_;
 
-            return $ctx->{controller}->patch_status('Pod', $ctx->{object},
+            return $ctx->{controller}->patch_status($ctx->{object},
                 status => { phase => 'Running' },
             );
         },
@@ -585,16 +554,29 @@ L<Future>, resolving to an L<IO::K8s::List>.
         status    => { phase => 'Running' },
     )->get;
 
+    $controller->patch_status($object,
+        status => { phase => 'Running' },
+    )->get;
+
 Patch the C</status> subresource for an object. Accepts either a class/name
-pair or an object instance plus a C<status> payload. Returns a L<Future> that
+pair (the name positional or as C<name =E<gt> ...>) or an object instance,
+plus a C<status> payload; in the object form, C<status> defaults to the
+object's own C<status>. The helper sends C<{ status =E<gt> $status }> through
+L<Net::Async::Kubernetes/patch_status>, with the patch type from C<type>
+(C<merge> by default, C<strategic> or C<json>). Returns a L<Future> that
 resolves to the patched object.
+
+Bad arguments, a missing C<status>, an unknown resource or patch type, and
+server errors fail the returned L<Future> instead of dying.
 
 =method update_status
 
     $controller->update_status($object)->get;
 
-Update the C</status> subresource for a full object instance. Returns a
-L<Future> that resolves to the updated object.
+Update the C</status> subresource for a full object instance, through
+L<Net::Async::Kubernetes/update_status>. Returns a L<Future> that resolves to
+the updated object. An object without C<metadata> or C<metadata.name> fails
+the L<Future> rather than croaking as the client method does.
 
 =head1 SEE ALSO
 
