@@ -1,0 +1,20 @@
+---
+claimed_at: 2026-09-27T21:22:55Z
+claimed_by: backlog-5
+class: standard
+completed: 2026-09-27T21:22:50Z
+created: 2026-09-27T04:25:44Z
+id: 59
+priority: low
+started: 2026-09-27T20:35:36Z
+status: done
+tags:
+- discovery
+- async
+title: Discovery blockiert die Loop über das synchrone LWP-io von Kubernetes::REST
+updated: 2026-09-27T21:22:55Z
+---
+
+Mit resource_map_from_cluster holt Kubernetes::REST die Discovery über sein eigenes synchrones io; das blockiert die IO::Async-Loop und geht am Transport des Async-Clients vorbei. Steht jetzt in POD und Skill. Eine asynchrone Lösung braucht eine öffentliche Seam in Kubernetes::REST, etwa Discovery-Requests bauen und Antworten einspeisen.
+
+Commit 92b2c78
