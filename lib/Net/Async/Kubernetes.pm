@@ -304,9 +304,15 @@ sub _unknown_resource_error {
 # expand_class fails closed for a qualified name (undef) but open for a bare
 # Kind: it fabricates 'IO::K8s::<Kind>' whether or not that class exists. Both
 # are an unknown resource; whatever else can go wrong with the class it did
-# resolve to is _usable_class's to report.
+# resolve to is _usable_class's to report. A reference is no name at all -
+# say a manifest hashref handed to patch() - and is refused as such:
+# expand_class would stringify it into a class name ('IO::K8s::HASH(0x...)')
+# and the load error would name that instead.
 sub _resolve_class {
     my ($self, $name, @args) = @_;
+    return (undef, 'resource name must be a string, got '
+        . (blessed($name) ? 'an object of class ' . ref($name) : 'a ' . ref($name) . ' reference'))
+        if ref $name;
     my $class = $self->_rest->expand_class($name, @args)
         // return (undef, $self->_unknown_resource_error($name));
     return $self->_usable_class($name, $class);
@@ -868,8 +874,9 @@ sub patch {
 
 Patch an existing resource. Returns a L<Future> that resolves to the patched
 object. Bad arguments -- among them an object that is no Kubernetes
-resource, such as an L<IO::K8s::List> or a nested C<PodSpec> -- fail the
-L<Future> before a request is sent.
+resource, such as an L<IO::K8s::List> or a nested C<PodSpec>, and a plain
+reference such as a manifest hashref in place of the resource name -- fail
+the L<Future> before a request is sent.
 
 Arguments:
 

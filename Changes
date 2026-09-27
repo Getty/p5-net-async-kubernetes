@@ -140,6 +140,12 @@ Revision history for Net-Async-Kubernetes
    refused before any request, as with Kubernetes::REST 1.109: a failed
    Future, a croak from `expand_class`, `update`, `update_status`, `ensure`
    and the watcher, a warning from `ensure_only`.
+ - Fix a reference in place of a resource name - typically a manifest
+   hashref handed to `patch` or `patch_status` - failing with "resource
+   'HASH(0x...)' resolves to class IO::K8s::HASH(0x...), which cannot be
+   loaded". Every method that takes a resource name now refuses it as
+   "resource name must be a string, got a HASH reference", the way it
+   reports its other bad arguments.
 
 0.008     2026-09-22 04:13:56Z
  - Add public `rest` and `new_object($kind, %fields)` on the client: the
