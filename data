@@ -1,0 +1,20 @@
+---
+claimed_at: 2026-09-27T20:33:08Z
+claimed_by: backlog-4
+class: standard
+completed: 2026-09-27T20:33:00Z
+created: 2026-09-27T04:25:39Z
+id: 58
+priority: low
+started: 2026-09-27T19:38:15Z
+status: done
+tags:
+- unstructured
+- future
+title: 'Unstructured: build_path stirbt in Future-Methoden weiter synchron'
+updated: 2026-09-27T20:33:08Z
+---
+
+Nach k41 stirbt build_path für Unstructured weiter synchron in drei Fällen: ohne Discovery (resource_map_from_cluster ist per Default aus), bei explizitem Klassennamen IO::K8s::Unstructured und bei einem Objekt ohne kind. build_path-Fehler in den Future-Methoden nach der Fehlerkonvention als failed Future zurückgeben.
+
+Commit b90a6d72a95f378acd7024a9f6b72efe40ecd452
