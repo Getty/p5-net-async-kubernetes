@@ -1,0 +1,28 @@
+---
+claimed_at: 2026-09-27T19:37:39Z
+claimed_by: backlog-2
+class: standard
+completed: 2026-09-27T19:37:39Z
+created: 2026-09-26T22:18:22Z
+id: 42
+priority: low
+started: 2026-09-27T02:50:54Z
+status: done
+tags:
+- docs
+- skills
+title: nak-core-Skill auf Stand bringen
+updated: 2026-09-27T19:37:39Z
+---
+
+nak-core nennt veraltete Mindestversionen (1.106 bzw. 1.105, cpanfile hat 1.108). Es fehlen die neuen Methoden patch_status, update_status, ensure, ensure_all, ensure_only, die Selector in list, IO::Async::SSL als Abhängigkeit und die Fehlerkonvention (Eingabefehler croaken synchron, Fehler aus dem Ablauf sind failed Futures).
+
+Nach k40 und k38 zusätzlich veraltet: nak-core sagt, eine bare unbekannte Kind falle auf IO::K8s::Kind zurück und jede Aufrufstelle prüfe das; jetzt läuft alles über _resolve_class. Controller-Status-Helfer delegieren an den Client. Kopfkommentar in t/24 zum synchronen Client veraltet, sobald kubernetes-rest fix/ensure-followups released ist.
+
+Nach k43 zusätzlich: Call-Sites übernehmen die Meldung aus _resolve_class bzw. _usable_class (unknown, Ladefehler oder not a resource class), expand_class lädt die Klasse, die es zurückgibt.
+
+Nach k33 und k46 zusätzlich: Watcher-Abschnitt (Backoff, Meldung an on_error, max_retries, stop bricht wartenden Reconnect ab), neuer Vertrag des Streaming-Transports (Response am Stream-Ende, Fehler-Body nicht gestreamt), Prüfung der Objektformen über _object_class.
+
+Umgesetzt auf fix/backlog-3, uncommittet. prove -lr t/ Mock-Modus 37 Dateien 285 Tests PASS, auch gegen installiertes Kubernetes::REST mit k43 (Orchestrator-Gegenprobe) und gegen gepinnte 1.108 (Worker).
+
+2026-09-27 19:37 Committed as 5a5c066 on fix/backlog-3 - branch HEAD. prove -lr t/ mock mode: Files=37, Tests=285, PASS. dzil build clean into scratch nak-build6.
