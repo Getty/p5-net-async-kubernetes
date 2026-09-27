@@ -1,0 +1,20 @@
+---
+claimed_at: 2026-09-27T20:34:09Z
+claimed_by: backlog-4
+class: standard
+completed: 2026-09-27T20:34:01Z
+created: 2026-09-27T04:55:30Z
+id: 61
+priority: medium
+started: 2026-09-27T19:38:29Z
+status: done
+tags:
+- errors
+- api
+title: Failed Futures mit HTTP-Status (Fehlerobjekt wie Kubernetes::REST)
+updated: 2026-09-27T20:34:09Z
+---
+
+Failed Futures tragen nur einen String; 404 und 409 lassen sich nicht ohne Textparsing erkennen. Kubernetes::Comb braucht das beim Prunen (schon weg = ok) und bei update_status-Konflikten. Vorschlag: dasselbe Exception-Objekt wie in kubernetes-rest k50 (stringifiziert wie heute), bzw. die Future-Failure-Details (category/code) nach Future-Konvention: ->fail($message, "http", $code, $response).
+
+Commit cabcab58d1fd392bd2c9ba3e5173724d16d61717
