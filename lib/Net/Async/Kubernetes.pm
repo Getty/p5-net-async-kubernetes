@@ -5,7 +5,7 @@ use strict;
 use warnings;
 use parent 'IO::Async::Notifier';
 
-use Carp qw(croak);
+use Carp qw(carp croak);
 use Scalar::Util qw(blessed);
 use IO::Socket::SSL;
 use File::Temp ();
@@ -436,25 +436,8 @@ sub list {
     my ($self, $short_class, %args) = @_;
 
     my $rest = $self->_rest;
-    my ($class, $error) = $self->_resolve_class($short_class);
-    return Future->fail($error) unless defined $class;
-
-    # Selectors are query parameters; build_path only knows path segments and
-    # would drop them silently, turning a filtered list into a full one.
-    my %params;
-    for my $selector (qw(labelSelector fieldSelector)) {
-        my $value = delete $args{$selector};
-        $params{$selector} = $value if defined $value;
-    }
-
-    my $path = $rest->build_path($class, %args,
-        $self->_unstructured_hint($class, $short_class));
-    my $req = $rest->prepare_request('GET', $path,
-        %params ? (parameters => \%params) : (),
-    );
-
-    return $self->_do_request($req)->then(sub {
-        my ($response) = @_;
+    return $self->_list_request($short_class, %args)->then(sub {
+        my ($class, $response) = @_;
         $rest->check_response($response, "list $short_class");
         return Future->done($rest->inflate_list($class, $response));
     });
@@ -489,6 +472,33 @@ C<fieldSelector>, etc.
 =back
 
 =cut
+
+# list() up to the response, unchecked: resolves with the class and the raw
+# Kubernetes::REST::HTTPResponse, or fails before any request when the name
+# resolves to no usable class. ensure_only() needs the status itself - a 404
+# there means the Kind is not served, not a failure - and must not read it
+# back out of the text check_response croaks with.
+sub _list_request {
+    my ($self, $short_class, %args) = @_;
+
+    my $rest = $self->_rest;
+    my ($class, $error) = $self->_resolve_class($short_class);
+    return Future->fail($error) unless defined $class;
+
+    # Selectors are query parameters; build_path only knows path segments and
+    # would drop them silently, turning a filtered list into a full one.
+    my %params;
+    for my $selector (qw(labelSelector fieldSelector)) {
+        my $value = delete $args{$selector};
+        $params{$selector} = $value if defined $value;
+    }
+
+    my $path = $rest->build_path($class, %args,
+        $self->_unstructured_hint($class, $short_class));
+    return $self->_request_unchecked('GET', $path,
+        %params ? (parameters => \%params) : (),
+    )->then(sub { Future->done($class, @_) });
+}
 
 sub get {
     my ($self, $short_class, @rest_args) = @_;
@@ -867,43 +877,11 @@ C<type> is C<json>)
 =cut
 
 sub delete {
-    my ($self, $class_or_object, @rest_args) = @_;
+    my ($self, @args) = @_;
 
     my $rest = $self->_rest;
-    my ($class, $name, $namespace);
-
-    if (ref($class_or_object)) {
-        my $object = $class_or_object;
-        ($class, my $error) = $self->_object_class('delete', $object);
-        return Future->fail($error) unless defined $class;
-        my $metadata = $object->metadata or return Future->fail("object must have metadata");
-        $name = $metadata->name or return Future->fail("object must have metadata.name");
-        $namespace = $metadata->namespace;
-    } else {
-        my %args;
-        if (@rest_args == 1) {
-            $args{name} = $rest_args[0];
-        } elsif (@rest_args >= 2 && $rest_args[0] !~ /^(name|namespace)$/) {
-            $args{name} = shift @rest_args;
-            %args = (%args, @rest_args);
-        } elsif (@rest_args % 2 == 0) {
-            %args = @rest_args;
-        } else {
-            return Future->fail("Invalid arguments to delete()");
-        }
-
-        ($class, my $error) = $self->_resolve_class($class_or_object);
-        return Future->fail($error) unless defined $class;
-        $name = $args{name} or return Future->fail("name required for delete");
-        $namespace = $args{namespace};
-    }
-
-    my $path = $rest->build_path($class, name => $name, namespace => $namespace,
-        $self->_unstructured_hint($class, $class_or_object));
-    my $req = $rest->prepare_request('DELETE', $path);
-
-    return $self->_do_request($req)->then(sub {
-        my ($response) = @_;
+    return $self->_delete_request(@args)->then(sub {
+        my ($class, $response) = @_;
         $rest->check_response($response, "delete $class");
         return Future->done(1);
     });
@@ -938,10 +916,53 @@ Arguments:
 
 =cut
 
+# delete() up to the response, unchecked: resolves with the class and the raw
+# Kubernetes::REST::HTTPResponse, or fails before any request on bad
+# arguments - for the same reason as _list_request: ensure_only() treats a
+# 404 (already gone) differently from a failure.
+sub _delete_request {
+    my ($self, $class_or_object, @rest_args) = @_;
+
+    my $rest = $self->_rest;
+    my ($class, $name, $namespace);
+
+    if (ref($class_or_object)) {
+        my $object = $class_or_object;
+        ($class, my $error) = $self->_object_class('delete', $object);
+        return Future->fail($error) unless defined $class;
+        my $metadata = $object->metadata or return Future->fail("object must have metadata");
+        $name = $metadata->name or return Future->fail("object must have metadata.name");
+        $namespace = $metadata->namespace;
+    } else {
+        my %args;
+        if (@rest_args == 1) {
+            $args{name} = $rest_args[0];
+        } elsif (@rest_args >= 2 && $rest_args[0] !~ /^(name|namespace)$/) {
+            $args{name} = shift @rest_args;
+            %args = (%args, @rest_args);
+        } elsif (@rest_args % 2 == 0) {
+            %args = @rest_args;
+        } else {
+            return Future->fail("Invalid arguments to delete()");
+        }
+
+        ($class, my $error) = $self->_resolve_class($class_or_object);
+        return Future->fail($error) unless defined $class;
+        $name = $args{name} or return Future->fail("name required for delete");
+        $namespace = $args{namespace};
+    }
+
+    my $path = $rest->build_path($class, name => $name, namespace => $namespace,
+        $self->_unstructured_hint($class, $class_or_object));
+    return $self->_request_unchecked('DELETE', $path)
+        ->then(sub { Future->done($class, @_) });
+}
+
 # One request through the Kubernetes::REST seam, resolving with the unchecked
-# Kubernetes::REST::HTTPResponse -- for ensure(), which branches on the status
-# code (404 absent, 409 conflict). check_response would fold that code into an
-# error string it could only be read back out of with a regex.
+# Kubernetes::REST::HTTPResponse -- for ensure() and ensure_only(), which
+# branch on the status code (404 absent, 409 conflict), directly or through
+# _list_request and _delete_request. check_response would fold that code into
+# an error string it could only be read back out of with a regex.
 sub _request_unchecked {
     my ($self, $method, $path, %opts) = @_;
     return $self->_do_request($self->_rest->prepare_request($method, $path, %opts));
@@ -1201,6 +1222,7 @@ L</ensure>
 sub ensure_only {
     my ($self, %args) = @_;
 
+    my $rest       = $self->_rest;
     my $label      = $args{label} or croak "ensure_only requires 'label'";
     my @objects    = @{ $args{objects} || [] };
     my @kinds      = @{ $args{kinds} || [] };
@@ -1229,33 +1251,71 @@ sub ensure_only {
         return join("\0", $group // '', $kind, $metadata->namespace // '', $metadata->name);
     };
 
+    # A failed list or delete leaves stale objects behind, so it is reported
+    # rather than swallowed - but only a real failure: a 404 on the list means
+    # the cluster does not serve the Kind, a 404 on the delete that the object
+    # is already gone. The status comes from the unchecked response, never
+    # from the text of an error. A caught croak already ends in its own
+    # location, which carp adds again, so the reason drops it.
+    my $where = sub {
+        my ($namespace) = @_;
+        return defined $namespace ? "in namespace '$namespace'" : 'at cluster scope';
+    };
+    my $reason_of = sub {
+        my ($error) = @_;
+        $error = defined $error ? "$error" : 'unknown error';
+        $error =~ s/\s+\z//;
+        $error =~ s/ at \S+ line \d+\.\z//;
+        return $error;
+    };
+    my $prune = sub {
+        my ($item) = @_;
+        return Future->call(sub { $self->_delete_request($item) })->then(sub {
+            my ($class, $response) = @_;
+            $rest->check_response($response, "delete $class")
+                unless $response->status == 404;
+            return Future->done;
+        })->else(sub {
+            my ($error) = @_;
+            my (undef, $kind) = $self->_api_version_and_kind($item);
+            carp "ensure_only: cannot delete $kind '" . $item->metadata->name . "' "
+                . $where->($item->metadata->namespace) . ': ' . $reason_of->($error);
+            return Future->done;
+        });
+    };
+
     return $self->ensure_all(@objects)->then(sub {
         my @applied = @_;
         my %expected = map { $key_of->($_) => 1 } @objects;
 
-        # One Kind x namespace after another. A list that fails is skipped,
-        # a delete that fails is ignored -- as in the synchronous client.
+        # One Kind x namespace after another, each delete after the one
+        # before, and on past every failure.
         my $f = Future->done;
         for my $kind (@kinds) {
             for my $namespace (@namespaces) {
                 $f = $f->then(sub {
                     return Future->call(sub {
-                        $self->list($kind,
+                        $self->_list_request($kind,
                             labelSelector => $label,
                             (defined $namespace ? (namespace => $namespace) : ()),
                         );
+                    })->then(sub {
+                        my ($class, $response) = @_;
+                        return Future->done if $response->status == 404;
+                        $rest->check_response($response, "list $kind");
+                        return Future->done($rest->inflate_list($class, $response));
                     })->else(sub {
-                        return Future->done(undef);
+                        my ($error) = @_;
+                        carp "ensure_only: cannot list $kind " . $where->($namespace)
+                            . ', nothing pruned there: ' . $reason_of->($error);
+                        return Future->done;
                     })->then(sub {
                         my ($list) = @_;
                         my $deletes = Future->done;
                         return $deletes unless $list;
                         for my $item (@{ $list->items }) {
                             next if $expected{ $key_of->($item) };
-                            $deletes = $deletes->then(sub {
-                                return Future->call(sub { $self->delete($item) })
-                                    ->else(sub { Future->done });
-                            });
+                            $deletes = $deletes->then(sub { $prune->($item) });
                         }
                         return $deletes;
                     });
@@ -1299,11 +1359,21 @@ the same name and namespace is deleted. The version is not compared: an
 object applied as C<autoscaling/v1> is kept when the listing goes through
 C<autoscaling/v2>. A C<namespaces> entry of C<undef> scans cluster-scoped
 resources; if C<namespaces> is omitted, only cluster-scoped resources are
-scanned. A list or delete request that fails is skipped or ignored, as in the
-synchronous client.
+scanned.
+
+Pruning goes on past a failure, and says so. When a C<kinds> entry cannot be
+listed in one namespace -- the API server rejects the request, the request
+fails without a response, or the entry resolves to no usable class -- that
+combination is skipped with a warning (C<carp>) naming the entry, the
+namespace (or cluster scope) and the reason; anything stale there survives
+this run. A 404 is silent: the cluster does not serve that Kind, so there is
+nothing to prune. A delete that fails warns with the Kind, name, namespace
+and reason, and the next object is tried; a 404 there means the object is
+already gone and is silent too. A C<$SIG{__WARN__}> handler that dies while
+the prune runs fails the returned L<Future> with the warning instead.
 
 Returns a L<Future> that resolves to the list of applied objects (from
-L</ensure_all>).
+L</ensure_all>), whether or not the pruning was complete.
 
 Arguments:
 

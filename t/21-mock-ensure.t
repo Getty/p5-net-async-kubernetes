@@ -679,7 +679,7 @@ subtest 'ensure_only: undef inside namespaces adds the cluster-scoped list along
     ], 'both the namespaced and the cluster-scoped list are requested');
 };
 
-subtest 'ensure_only: a failing list for one namespace does not stop the others; a failing delete is ignored' => sub {
+subtest 'ensure_only: a failing list for one namespace does not stop the others; a failing delete does not stop the prune' => sub {
     my $kube = make_kube();
 
     MockTransport::mock_response('GET',
@@ -698,6 +698,10 @@ subtest 'ensure_only: a failing list for one namespace does not stop the others;
         '/api/v1/namespaces/kube-system/configmaps/stale-cm',
         { kind => 'Status', status => 'Failure', message => 'server error', code => 500 }, 500);
 
+    # Both failures are reported (t/33-mock-ensure-only-warnings.t has the
+    # details); collected here to keep the output clean.
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
     my $f = future_or_bail('ensure_only', sub {
         $kube->ensure_only(
             label      => 'app.kubernetes.io/component=queen',
@@ -708,6 +712,7 @@ subtest 'ensure_only: a failing list for one namespace does not stop the others;
     }) or return;
     get_list_or_bail('ensure_only', $f);
     ok($f->is_done, 'ensure_only future still resolves despite the failing list and delete');
+    is(scalar @warnings, 2, 'the failing list and the failing delete each warn');
 
     my @deletes = grep { $_->{method} eq 'DELETE' } MockTransport::request_log;
     is(scalar(@deletes), 1, 'the delete for the reachable namespace was still attempted');
