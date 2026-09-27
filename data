@@ -1,0 +1,19 @@
+---
+claimed_at: 2026-09-27T20:33:23Z
+claimed_by: backlog-4
+class: standard
+completed: 2026-09-27T20:33:15Z
+created: 2026-09-27T03:50:21Z
+id: 56
+priority: low
+started: 2026-09-27T19:38:10Z
+status: done
+tags:
+- test
+title: 'Regressionstest: qualifizierter Name mit nicht bedientem GV'
+updated: 2026-09-27T20:33:23Z
+---
+
+Nach kubernetes-rest k43 (fail-closed für qualifizierte Namen, deren GV der Cluster nicht bedient) braucht der Async-Client keinen Code, aber einen Regressionstest: ein qualifizierter Name für einen nicht bedienten GV schickt keinen Request an eine andere Gruppe und liefert ein failed Future.
+
+Commit 02fd97e1dac7292f34df15cc65f2c5701eed5301
