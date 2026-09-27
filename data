@@ -1,0 +1,19 @@
+---
+claimed_at: 2026-09-27T21:22:43Z
+claimed_by: backlog-5
+class: standard
+completed: 2026-09-27T21:22:38Z
+created: 2026-09-27T03:20:17Z
+id: 52
+priority: low
+started: 2026-09-27T20:35:25Z
+status: done
+tags:
+- watcher
+title: Watcher-Backoff ohne Jitter
+updated: 2026-09-27T21:22:43Z
+---
+
+Der exponentielle Backoff aus k33 hat keinen Jitter, damit Tests deterministisch bleiben. Viele Watcher gegen denselben API-Server reconnecten dadurch im Gleichschritt. Jitter ergänzen, in Tests abschaltbar.
+
+Commit e826d66
