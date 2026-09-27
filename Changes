@@ -48,9 +48,10 @@ Revision history for Net-Async-Kubernetes
    now go through the client's methods of the same name instead of building
    their own requests. Signature, the merge default and failed Futures for
    bad input are unchanged; server-error messages now name the operation as
-   `patch_status`/`update_status`, and a bare unknown Kind fails the Future
-   instead of dying. The SYNOPSIS showed a call form that never worked and
-   is fixed.
+   `patch_status`/`update_status`. A bare unknown Kind, and the object form
+   without `status` for a class that has no `status` attribute, now fail the
+   Future instead of dying. The SYNOPSIS showed a call form that never
+   worked and is fixed.
 
 0.008     2026-09-22 04:13:56Z
  - Add public `rest` and `new_object($kind, %fields)` on the client: the

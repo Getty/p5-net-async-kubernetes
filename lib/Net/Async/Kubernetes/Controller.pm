@@ -343,7 +343,9 @@ sub patch_status {
     my (%args, @target);
     if (ref($class_or_object) && blessed($class_or_object)) {
         %args = @rest_args;
-        $args{status} //= $class_or_object->status;
+        # A class without a status attribute has nothing to fall back on; the
+        # missing status is then reported below like any other.
+        $args{status} //= $class_or_object->status if $class_or_object->can('status');
         @target = ($class_or_object);
     } else {
         if (@rest_args >= 1 && !ref($rest_args[0]) && $rest_args[0] !~ /^(name|namespace|status|type)$/) {
@@ -561,13 +563,14 @@ L<Future>, resolving to an L<IO::K8s::List>.
 Patch the C</status> subresource for an object. Accepts either a class/name
 pair (the name positional or as C<name =E<gt> ...>) or an object instance,
 plus a C<status> payload; in the object form, C<status> defaults to the
-object's own C<status>. The helper sends C<{ status =E<gt> $status }> through
-L<Net::Async::Kubernetes/patch_status>, with the patch type from C<type>
-(C<merge> by default, C<strategic> or C<json>). Returns a L<Future> that
-resolves to the patched object.
+object's own C<status> when its class has one. The helper sends
+C<{ status =E<gt> $status }> through L<Net::Async::Kubernetes/patch_status>,
+with the patch type from C<type> (C<merge> by default, C<strategic> or
+C<json>). Returns a L<Future> that resolves to the patched object.
 
-Bad arguments, a missing C<status>, an unknown resource or patch type, and
-server errors fail the returned L<Future> instead of dying.
+Bad arguments, a missing C<status> (including an object whose class has no
+C<status> to fall back on), an unknown resource or patch type, and server
+errors fail the returned L<Future> instead of dying.
 
 =method update_status
 

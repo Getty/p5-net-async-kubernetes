@@ -218,6 +218,11 @@ subtest 'patch_status: argument errors fail the Future' => sub {
     fails_like('object form without any status',
         sub { $controller->patch_status(pod_object($kube)) },
         qr/^status required for patch_status/);
+    # No status attribute to fall back on: the fallback is skipped, not called.
+    fails_like('object form, class without a status attribute',
+        sub { $controller->patch_status($kube->new_object(ConfigMap => {
+            metadata => { name => 'cm-1', namespace => 'default' } })) },
+        qr/^status required for patch_status/);
     fails_like('unknown patch type',
         sub { $controller->patch_status('Pod', 'pod-1', namespace => 'default',
             status => $status, type => 'bogus') },
