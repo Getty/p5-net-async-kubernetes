@@ -1,0 +1,21 @@
+---
+claimed_at: 2026-09-27T19:37:15Z
+claimed_by: backlog-2
+class: standard
+completed: 2026-09-27T19:37:15Z
+created: 2026-09-27T02:50:25Z
+id: 48
+priority: low
+started: 2026-09-27T03:36:53Z
+status: done
+tags:
+- ensure
+title: 'ensure_only: fehlgeschlagene List- und Delete-Requests melden'
+updated: 2026-09-27T19:37:15Z
+---
+
+Spiegelt kubernetes-rest k37. Entscheidung (Orchestrator, 2026-09-27): Rückgabewert bleibt die Liste der angewendeten Objekte. Ein fehlgeschlagener List-Request warnt per carp mit Kind, Namespace und Grund, außer bei 404 (Kind wird nicht angeboten). Ein fehlgeschlagenes Delete warnt mit Kind, Namespace, Name und Grund, außer bei 404 (schon weg). Kosten falls falsch: zu viele oder zu wenige Warnungen; eine Option zum harten Abbruch lässt sich später ergänzen.
+
+Umgesetzt auf fix/backlog-3, uncommittet. prove -lr t/ Mock-Modus 37 Dateien 285 Tests PASS, auch gegen installiertes Kubernetes::REST mit k43 (Orchestrator-Gegenprobe) und gegen gepinnte 1.108 (Worker).
+
+2026-09-27 19:37 Committed as 538793a on fix/backlog-3. prove -lr t/ mock mode in an isolated worktree at this commit: Files=35, Tests=278, PASS.
