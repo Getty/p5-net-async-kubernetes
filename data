@@ -1,0 +1,20 @@
+---
+claimed_at: 2026-09-27T23:55:46Z
+claimed_by: backlog-9
+class: standard
+completed: 2026-09-27T23:55:42Z
+created: 2026-09-27T22:33:00Z
+id: 70
+priority: low
+started: 2026-09-27T23:36:48Z
+status: done
+tags:
+- args
+- k69-followup
+title: get und delete schreiben eine Referenz als Objektnamen in den Pfad
+updated: 2026-09-27T23:55:46Z
+---
+
+Gefunden bei k69 (2026-09-28), nachgestellt. get('Pod', $pod) sendet GET /api/v1/pods/IO::K8s::Api::Core::V1::Pod=HASH(0x...), delete('Pod', {name => 'web'}) sendet DELETE /api/v1/pods/HASH(0x...); erst die 404 des Servers zeigt den Fehler. log, Duplex-Methoden und patch lehnen das schon vor dem Request ab. Gleich behandeln (Argumentfehler als failed Future).
+
+Commit a767f2b
