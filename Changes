@@ -79,6 +79,17 @@ Revision history for Net-Async-Kubernetes
    error and reconnected a second late. An error response is no longer
    streamed either: its body reached `on_line` as a log line (and the
    watcher as a bogus event) and now ends up in the failure message.
+ - Fix the object forms dying synchronously on an object that is no
+   resource. `create`, `update`, `update_status`, `patch`, `patch_status`,
+   `delete` and `ensure` handed the object's class straight to
+   `build_path`, so an `IO::K8s::List`, a nested type such as a `PodSpec`,
+   or a value that is no IO::K8s object at all died there, or in the
+   metadata lookup before it, with an unrelated message. Each now reports
+   "not a Kubernetes resource class" (or "requires an IO::K8s object") the
+   way it reports its other bad arguments, before any request is sent: a
+   failed Future from `create`, `delete`, `patch` and `patch_status`, a
+   croak from `update`, `update_status` and `ensure`. The controller's
+   `update_status` fails its Future for such an object instead of dying.
 
 0.008     2026-09-22 04:13:56Z
  - Add public `rest` and `new_object($kind, %fields)` on the client: the

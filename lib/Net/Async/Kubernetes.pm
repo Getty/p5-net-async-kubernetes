@@ -322,6 +322,20 @@ sub _usable_class {
     ));
 }
 
+# The class of an object handed to one of the object forms (create, update,
+# update_status, patch, patch_status, delete, ensure), which build their path
+# from it. It is checked like a resolved name (_usable_class): an IO::K8s::List,
+# a nested type such as a PodSpec, or no IO::K8s object at all has no request
+# path, and build_path - or the metadata lookup before it - would die on it
+# synchronously. Returns the class, or (undef, $message) naming $label, which
+# each caller reports per its contract - a failed Future or a croak.
+sub _object_class {
+    my ($self, $label, $object) = @_;
+    return (undef, "$label requires an IO::K8s object") unless blessed($object);
+    my ($class, $error) = $self->_usable_class(ref($object), ref($object));
+    return defined $class ? $class : (undef, "$label: $error");
+}
+
 sub expand_class {
     my ($self, @args) = @_;
     my ($class, $error) = $self->_resolve_class(@args);
@@ -488,7 +502,8 @@ sub create {
     my ($self, $object) = @_;
 
     my $rest = $self->_rest;
-    my $class = ref($object);
+    my ($class, $error) = $self->_object_class('create', $object);
+    return Future->fail($error) unless defined $class;
     my $namespace = $object->can('metadata') && $object->metadata
         ? $object->metadata->namespace
         : undef;
@@ -511,6 +526,10 @@ sub create {
 Create a resource from an IO::K8s object. Returns a L<Future> that resolves
 to the created object with server-populated fields (C<resourceVersion>, etc.).
 
+An object that is no Kubernetes resource -- an L<IO::K8s::List>, a nested
+type such as a C<PodSpec> -- or anything that is not an IO::K8s object fails
+the L<Future> before a request is sent.
+
 Arguments:
 
 =over 4
@@ -525,7 +544,8 @@ sub update {
     my ($self, $object) = @_;
 
     my $rest = $self->_rest;
-    my $class = ref($object);
+    my ($class, $error) = $self->_object_class('update', $object);
+    croak $error unless defined $class;
     my $metadata = $object->metadata or croak "object must have metadata";
     my $name = $metadata->name or croak "object must have metadata.name";
     my $namespace = $metadata->namespace;
@@ -549,6 +569,10 @@ Update an existing resource. The object must have C<metadata.name> (and
 C<metadata.namespace> if namespaced). Returns a L<Future> that resolves to
 the updated object.
 
+A missing C<metadata> or C<metadata.name> croaks synchronously, and so does
+an object that is no Kubernetes resource -- an L<IO::K8s::List>, a nested
+type such as a C<PodSpec> -- or anything that is not an IO::K8s object.
+
 Arguments:
 
 =over 4
@@ -563,7 +587,8 @@ sub update_status {
     my ($self, $object) = @_;
 
     my $rest = $self->_rest;
-    my $class = ref($object);
+    my ($class, $error) = $self->_object_class('update_status', $object);
+    croak $error unless defined $class;
     my $metadata = $object->metadata or croak "object must have metadata";
     my $name = $metadata->name or croak "object must have metadata.name";
     my $namespace = $metadata->namespace;
@@ -594,7 +619,8 @@ that resolves to the updated object.
 
 Needs a current C<resourceVersion> and fails with a 409 conflict if the
 object changed on the server in the meantime. A missing C<metadata> or
-C<metadata.name> croaks synchronously, as with L</update>. Prefer
+C<metadata.name>, or an object that is no Kubernetes resource, croaks
+synchronously, as with L</update>. Prefer
 L</patch_status> when you are setting individual status fields.
 
 Arguments:
@@ -622,7 +648,8 @@ sub _patch_args {
 
     if (ref($class_or_object) && blessed($class_or_object)) {
         my $object = $class_or_object;
-        $class = ref($object);
+        ($class, my $error) = $self->_object_class($label, $object);
+        return $error unless defined $class;
         my $metadata = $object->metadata or return "object must have metadata";
         $name = $metadata->name or return "object must have metadata.name";
         $namespace = $metadata->namespace;
@@ -693,7 +720,9 @@ sub patch {
     );
 
 Patch an existing resource. Returns a L<Future> that resolves to the patched
-object.
+object. Bad arguments -- among them an object that is no Kubernetes
+resource, such as an L<IO::K8s::List> or a nested C<PodSpec> -- fail the
+L<Future> before a request is sent.
 
 Arguments:
 
@@ -794,7 +823,8 @@ sub delete {
 
     if (ref($class_or_object)) {
         my $object = $class_or_object;
-        $class = ref($object);
+        ($class, my $error) = $self->_object_class('delete', $object);
+        return Future->fail($error) unless defined $class;
         my $metadata = $object->metadata or return Future->fail("object must have metadata");
         $name = $metadata->name or return Future->fail("object must have metadata.name");
         $namespace = $metadata->namespace;
@@ -838,6 +868,9 @@ sub delete {
     $future->get;
 
 Delete a resource. Returns a L<Future> that resolves to C<1> on success.
+In the object form, an object without C<metadata.name>, one that is no
+Kubernetes resource (an L<IO::K8s::List>, a nested C<PodSpec>), or a
+reference that is not an IO::K8s object fails the L<Future>.
 
 Arguments:
 
@@ -912,7 +945,8 @@ sub ensure {
     $object = $self->_manifest_to_object('ensure', $object) if ref($object) eq 'HASH';
     croak "ensure requires an IO::K8s object or hashref" unless blessed($object);
 
-    my $class = ref($object);
+    my ($class, $error) = $self->_object_class('ensure', $object);
+    croak $error unless defined $class;
     my ($api_version, $kind) = $self->_api_version_and_kind($object);
     # The special cases below are the built-in core v1 PersistentVolumeClaim
     # and batch/v1 Job only. The apiVersion is compared exactly, not just its
@@ -1043,8 +1077,10 @@ names in its own group is ensured like any other object, and so is a C<Job>
 under any apiVersion other than C<batch/v1>.
 
 Errors that are known before any request is made -- a hashref without
-C<kind>, a value that is neither an object nor a hashref, an object missing
-C<metadata>/C<metadata.name>, an unknown C<kind>, a C<kind> whose class does
+C<kind>, a value that is neither an object nor a hashref, an object that is
+no Kubernetes resource (an L<IO::K8s::List>, a nested type such as a
+C<PodSpec>), an object missing C<metadata>/C<metadata.name>, an unknown
+C<kind>, a C<kind> whose class does
 not load or is no resource class (see L</expand_class>), or an C<apiVersion>
 that resolves to no known class (the message names both the Kind and the
 C<apiVersion>) -- croak synchronously, as with L</update>. Anything that

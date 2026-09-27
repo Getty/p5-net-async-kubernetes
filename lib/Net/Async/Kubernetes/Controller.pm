@@ -369,8 +369,10 @@ sub patch_status {
 sub update_status {
     my ($self, $object) = @_;
 
-    # The client's update_status croaks on these two; the controller's helpers
+    # The client's update_status croaks on these; the controller's helpers
     # report every error as a failed Future.
+    my ($class, $error) = $self->kube->_object_class('update_status', $object);
+    return Future->fail($error) unless defined $class;
     my $metadata = $object->metadata or return Future->fail("object must have metadata");
     $metadata->name or return Future->fail("object must have metadata.name");
 
@@ -587,8 +589,9 @@ errors fail the returned L<Future> instead of dying.
 
 Update the C</status> subresource for a full object instance, through
 L<Net::Async::Kubernetes/update_status>. Returns a L<Future> that resolves to
-the updated object. An object without C<metadata> or C<metadata.name> fails
-the L<Future> rather than croaking as the client method does.
+the updated object. An object without C<metadata> or C<metadata.name>, or one
+that is no Kubernetes resource (an L<IO::K8s::List>, a nested C<PodSpec>),
+fails the L<Future> rather than croaking as the client method does.
 
 =head1 SEE ALSO
 
