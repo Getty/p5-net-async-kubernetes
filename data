@@ -1,0 +1,21 @@
+---
+claimed_at: 2026-09-27T21:52:33Z
+claimed_by: backlog-6
+class: standard
+completed: 2026-09-27T21:52:26Z
+created: 2026-09-27T21:04:52Z
+id: 65
+priority: low
+started: 2026-09-27T21:23:58Z
+status: done
+tags:
+- api
+- args
+- k63-followup
+title: 'Controller::patch_status und Duplex-Methoden: unbekannte Keys unbemerkt'
+updated: 2026-09-27T21:52:33Z
+---
+
+Gefunden bei k63 (2026-09-27). Controller::patch_status baut einen eigenen Argument-Hash, unbekannte Keys (statuss, typ) verschwinden. port_forward, exec, attach, cp_to_pod und cp_from_pod reichen übrige Keys ungeprüft an build_path. Den k63-Helfer _unknown_argument_error dort ebenfalls nutzen.
+
+Commit eb432fa8e552d7fc6c6b8d036de9dc16e28646d1
