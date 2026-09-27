@@ -1,0 +1,22 @@
+---
+claimed_at: 2026-09-27T01:37:01Z
+claimed_by: nak-followups
+class: standard
+completed: 2026-09-27T01:37:01Z
+created: 2026-09-27T00:27:33Z
+id: 43
+priority: low
+started: 2026-09-27T01:04:28Z
+status: done
+tags:
+- api
+- future
+title: Nicht ladbare oder Nicht-Ressourcen-Klassen sterben synchron in build_path
+updated: 2026-09-27T01:37:01Z
+---
+
+Nach k40 liefert eine bare unbekannte Kind ein failed Future. Weiter synchron sterben: eine Klasse aus resource_map, die nicht lädt oder nicht kompiliert (etwa Tippfehler in einem Plus-Klassennamen), und ein bare Name, der auf eine ladbare IO::K8s-Hilfsklasse ohne Ressourcen-Rolle zeigt (List, Resource, Types, Unstructured). Ziel: failed Future mit der echten Ursache in den Future-Methoden.
+
+Umgesetzt auf feat/status-ensure, uncommittet. Worker-Lauf prove -lr t/ Mock-Modus 30 Dateien 240 Tests PASS, dzil build sauber.
+
+Committed 1e65ed8 (Fail unloadable and non-resource classes with their real cause instead of dying in build_path, k43). Verified in isolated worktree: prove -lr t/ mock mode, 30 files, 240 tests, PASS. Full branch tip also green (30 files, 240 tests) and dzil build clean.
