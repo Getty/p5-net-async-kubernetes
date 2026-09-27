@@ -47,7 +47,10 @@ is hand-written in every module; dzil bumps it.
   `watch_resource($resource, %watcher_args, key_for=>sub)`, `start`/`stop`,
   `get_object`/`list_objects` (thin `$kube->` wrappers), `patch_status` (own signature
   `status => {...}`, merge default; refuses any other key itself (k65) — the client
-  only sees `patch`/`type`; builds `{status => ...}` and delegates to the
+  only sees `patch`/`type` — and an odd list after the object or the positional
+  name (k68, `Invalid arguments to patch_status()`, as the keyed form always did;
+  the client's `_patch_args` and `get` still just warn there and send the
+  request); builds `{status => ...}` and delegates to the
   client's `patch_status`), `update_status` (delegates to the client's). Both report
   every bad input as a failed Future — `update_status` pre-checks with `_object_class`
   where the client would croak.

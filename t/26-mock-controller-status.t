@@ -237,6 +237,33 @@ subtest 'patch_status: argument errors fail the Future' => sub {
     $controller->remove_from_parent;
 };
 
+# karr k68: an odd list after the object, or after a positional name, was
+# assigned to a hash anyway - Perl warned "Odd number of elements" and the
+# patch went out with the stray key's value undef (a trailing 'type' sent a
+# merge patch). It fails the Future like the keyed class form, and warns
+# nothing.
+subtest 'patch_status: an odd argument list fails without a warning' => sub {
+    my ($kube, $controller) = make_controller();
+    MockTransport::mock_response('PATCH', $POD_STATUS, pod_json(phase => 'Running'));
+    my $status = { phase => 'Running' };
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, @_ };
+
+    fails_like('object form, a stray key',
+        sub { $controller->patch_status(pod_object($kube), status => $status, 'type') },
+        qr/\AInvalid arguments to patch_status\(\)\z/);
+    fails_like('object form, a lone key',
+        sub { $controller->patch_status(pod_object($kube, phase => 'Pending'), 'status') },
+        qr/\AInvalid arguments to patch_status\(\)\z/);
+    fails_like('class form, a positional name and a stray key',
+        sub { $controller->patch_status('Pod', 'pod-1', namespace => 'default',
+            status => $status, 'type') },
+        qr/\AInvalid arguments to patch_status\(\)\z/);
+    is_deeply(\@warnings, [], 'no warning');
+
+    $controller->remove_from_parent;
+};
+
 subtest 'patch_status: a server error fails the Future' => sub {
     my ($kube, $controller) = make_controller();
     MockTransport::mock_response('PATCH', $POD_STATUS,

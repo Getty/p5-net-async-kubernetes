@@ -345,6 +345,7 @@ sub patch_status {
 
     my (%args, @target, @allowed);
     if (ref($class_or_object) && blessed($class_or_object)) {
+        return Future->fail("Invalid arguments to patch_status()") if @rest_args % 2;
         %args = @rest_args;
         @allowed = qw( status type );
         # A class without a status attribute has nothing to fall back on; the
@@ -354,6 +355,7 @@ sub patch_status {
     } else {
         if (@rest_args >= 1 && !ref($rest_args[0]) && $rest_args[0] !~ /^(name|namespace|status|type)$/) {
             $args{name} = shift @rest_args;
+            return Future->fail("Invalid arguments to patch_status()") if @rest_args % 2;
             %args = (%args, @rest_args);
         } elsif (@rest_args % 2 == 0) {
             %args = @rest_args;
@@ -594,7 +596,8 @@ than C<name>, C<namespace>, C<status> and C<type> -- in the object form only
 C<status> and C<type>, the object gives name and namespace -- before a
 request is sent: C<Unknown argument 'typ' to patch_status() (allowed: name,
 namespace, status, type)>. Such an option would otherwise be dropped when the
-patch is built.
+patch is built. An odd list of options after the object or the name fails it
+as C<Invalid arguments to patch_status()> too, before a request is sent.
 
 =method update_status
 
