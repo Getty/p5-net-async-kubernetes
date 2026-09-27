@@ -1,0 +1,21 @@
+---
+claimed_at: 2026-09-27T03:34:06Z
+claimed_by: backlog-2
+class: standard
+completed: 2026-09-27T03:34:06Z
+created: 2026-09-27T01:23:24Z
+id: 47
+priority: low
+started: 2026-09-27T02:50:39Z
+status: done
+tags:
+- test
+title: t/03-configure.t ruft skip außerhalb eines SKIP-Blocks
+updated: 2026-09-27T03:34:06Z
+---
+
+Schlägt im Subtest expand_class with custom resource_map das eval fehl, ruft der Test skip ohne SKIP-Block auf und die Datei stirbt ohne Plan, statt sauber zu skippen oder zu scheitern.
+
+Umgesetzt auf fix/backlog-2, uncommittet. prove -lr t/ Mock-Modus 33 Dateien 264 Tests PASS (Orchestrator-Gegenprobe), dzil build sauber.
+
+2026-09-27 03:33 Committed as 746435a: Fail t/03's custom resource_map subtest cleanly instead of dying on skip outside a SKIP block. Both hunks of t/03-configure.t, no Changes entry (test only). Verified alone in an isolated worktree, prove -lr t/ mock mode: 32 files, 258 tests, PASS.
