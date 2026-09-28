@@ -62,7 +62,8 @@ principle and lane are in `.claude/rules/nak-rules.md`.
 
 The agents carry their skills via `briefing.skills` (see `.claude/agents/`); the main
 agent delegates rather than loading them. Skill sources live under `.claude/skills/` —
-architecture and invariants in `nak-core`, hardlink-shared house skills alongside it.
+architecture and invariants in `nak-core`; the house skills alongside it come from
+skilletor (`.claude/skilletor.json`) — do not hand-edit them, change them in their source.
 
 ## PodWeaver
 
