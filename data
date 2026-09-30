@@ -1,0 +1,21 @@
+---
+claimed_at: 2026-09-30T05:57:27Z
+claimed_by: nak-worker
+class: standard
+completed: 2026-09-30T05:57:22Z
+created: 2026-09-30T05:48:22Z
+id: 74
+priority: low
+started: 2026-09-30T05:51:17Z
+status: done
+tags:
+- watcher
+title: 'Watcher: WatchFailed-Meldung trägt Perl-Ort des check_response-Aufrufs'
+updated: 2026-09-30T05:57:27Z
+---
+
+Gefunden bei k55 live: bei 401/403 endet message von WatchFailed (und die warn-Ausgabe ohne on_error) mit "... \"code\":403}\n at .../Net/Async/Kubernetes/Watcher.pm line 460." — die Stringifizierung von Kubernetes::REST::APIError enthält den croak-Ort (so gewollt in REST). Für die an Menschen gerichtete Meldung ist der Ort in Watcher.pm Rauschen; ensure_only schneidet ihn bei seinen carp-Gründen ab. Vorschlag: für ein APIError den Grund als "HTTP <code> <reason>: <message>" bauen, sonst Ort abschneiden. Rein kosmetisch, nach 0.009.
+
+2026-09-30 05:57 Done: Watcher::_cause_text (new) words every WatchFailed cause - APIError as 'HTTP <code> <reason>: <message>' from its accessors (body when no Status, status alone when empty), anything else with a trailing ' at FILE line N.' dropped; _watch_failed uses it. WatchFailed structure unchanged. POD line on the message, nak-core note. MockTransport: mock_watch_events takes a body option for the rejection. t/29: new subtest (403 with Status, 502 plain body, 503 empty, die with location, warn path) red before, green after; the two 403 claims now assert the new wording. Verified: prove -lr t/ mock mode (REST/IO::K8s sibling lib overlay) 48 files / 357 tests PASS, 01/02 skipped (live-only); dzil build clean. prove-pinned.sh not run (no cached local::lib, needs network) - accessors code/body/reason/message exist in installed REST 1.109 = the pin.
+
+2026-09-30 05:57 Committed as a3e70eb (Changes: WatchFailed bullet names the rejection wording).
