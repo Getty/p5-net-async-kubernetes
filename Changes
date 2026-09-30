@@ -7,6 +7,9 @@ Revision history for Net-Async-Kubernetes
    distribution died with "Can't locate IO/Async/SSL.pm" on its first
    request to a cluster. The minimum, 0.12, is the version `Net::Async::HTTP`
    itself insists on.
+ - Require `Kubernetes::REST` 1.109. Failed Futures carry its
+   `Kubernetes::REST::APIError`, and `delete`'s `propagationPolicy` and
+   `discover` need what 1.109 added.
  - Fix `list()` dropping `labelSelector` and `fieldSelector`. Both went to
    `build_path`, which ignores them, so a filtered list resolved to every
    object of the Kind. They are now sent as query parameters, as in
@@ -174,14 +177,13 @@ Revision history for Net-Async-Kubernetes
    `Background` before recreating it.
  - Fail Futures for a refusal of the API server (status 400 and up) the way
    Future's convention has it: `->fail($error, 'http', $response)`. `$error`
-   is exactly what `Kubernetes::REST`'s `check_response` throws - the
-   message string as before, or a `Kubernetes::REST::APIError` object with a
-   Kubernetes::REST that has that class - and `$response` is the
-   `Kubernetes::REST::HTTPResponse`, so a 404 or a 409 can be told apart by
-   `$response->status` instead of by parsing the message, e.g. with
-   `->catch(http => sub { ... })`. This holds for every request method, a
-   streamed `log()`, `ensure` and `ensure_all`; the watcher still reports to
-   `on_error`.
+   is exactly what `Kubernetes::REST`'s `check_response` throws, a
+   `Kubernetes::REST::APIError` that stringifies to the message as before,
+   and `$response` is the `Kubernetes::REST::HTTPResponse`, so a 404 or a
+   409 can be told apart by `$response->status` instead of by parsing the
+   message, e.g. with `->catch(http => sub { ... })`. This holds for every
+   request method, a streamed `log()`, `ensure` and `ensure_all`; the
+   watcher still reports to `on_error`.
  - Fix the constructor swallowing why a `context` given without `kubeconfig`
    could not be used: a context missing from the default kubeconfig, or no
    kubeconfig at all outside a cluster, was ignored and surfaced as "server
@@ -199,13 +201,10 @@ Revision history for Net-Async-Kubernetes
    resource map resolve without a request of its own. With
    `resource_map_from_cluster`, `Kubernetes::REST` otherwise reads them on
    first use through its synchronous HTTP backend, blocking the loop; await
-   `discover` once at start-up to avoid that. It takes a `Kubernetes::REST`
-   that has `prepare_discovery_requests` and `absorb_discovery`; with 1.108,
-   which has neither, it runs that synchronous read right away instead, so
-   it can always be called. An error status fails the Future with category
-   `http` and the response; legacy discovery (Kubernetes before 1.27) is
-   left to the synchronous read on first use; without
-   `resource_map_from_cluster` nothing is sent.
+   `discover` once at start-up to avoid that. An error status fails the
+   Future with category `http` and the response; legacy discovery
+   (Kubernetes before 1.27) is left to the synchronous read on first use;
+   without `resource_map_from_cluster` nothing is sent.
  - Refuse an option `list`, `get`, `log`, `patch`, `patch_status`,
    `port_forward`, `exec`, `attach`, `cp_to_pod`, `cp_from_pod`,
    `ensure_only` or `Net::Async::Kubernetes::Controller`'s `patch_status`

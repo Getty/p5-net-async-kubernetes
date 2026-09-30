@@ -14,7 +14,7 @@ requires 'Carp';
 requires 'File::Temp';
 requires 'Scalar::Util';
 
-requires 'Kubernetes::REST', '1.108';
+requires 'Kubernetes::REST', '1.109';
 requires 'IO::K8s', '1.108';
 
 on test => sub {
