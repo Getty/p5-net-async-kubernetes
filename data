@@ -1,0 +1,20 @@
+---
+claimed_at: 2026-09-30T04:58:16Z
+claimed_by: nak-release-manager
+class: standard
+completed: 2026-09-30T04:58:16Z
+created: 2026-09-30T04:57:18Z
+id: 71
+priority: high
+started: 2026-09-30T04:58:16Z
+status: done
+tags:
+- deps
+- release
+title: Require Kubernetes::REST 1.109 in cpanfile
+updated: 2026-09-30T04:58:16Z
+---
+
+HEAD against CPAN Kubernetes::REST 1.108 + IO::K8s 1.108 (isolated lib) fails t/39-mock-http-failures.t test 5: Kubernetes::REST::APIError only exists from Kubernetes::REST 1.109; delete propagationPolicy (k60) also relies on 1.109. Raise the cpanfile pin to 1.109 (released before this dist, 0.009). IO::K8s pin stays 1.108 (Kubernetes::REST 1.109 itself requires IO::K8s 1.108).
+
+Committed 3c7c4d5: cpanfile Kubernetes::REST 1.108 -> 1.109; Changes: dependency bullet, 1.108 fallback wording dropped from the error-Future and discover bullets. IO::K8s stays 1.108 (Kubernetes::REST 1.109 requires IO::K8s 1.108).
