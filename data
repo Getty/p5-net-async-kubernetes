@@ -1,0 +1,21 @@
+---
+class: standard
+created: 2026-09-30T05:48:10Z
+id: 73
+priority: high
+status: backlog
+tags:
+- watcher
+- live
+title: 'Watcher: Reconnect nach einem Watch ohne resourceVersion spielt Historie ab,
+  Zustand läuft rückwärts'
+updated: 2026-09-30T05:48:10Z
+---
+
+Gefunden bei der Live-Prüfung k55 (kwok, kube-apiserver v1.36.1), vorbestehend seit jeher, kein Regress von 0.009.
+
+Ein Watch ohne resourceVersion (erster Start, nach stop/start, nach 410 Gone) liefert erst synthetische ADDED-Events für alle vorhandenen Objekte, nach Name sortiert, jedes mit seiner eigenen resourceVersion. Der Watcher merkt sich die rv des letzten verarbeiteten Events. Kommt bis zum Server-Timeout kein echtes Event mehr (ruhiger Namespace, Default-Timeout 300s: der Normalfall), reconnectet er mit der rv des zuletzt gelisteten Objekts. Die ist älter als der Stand beim Watch-Start, also spielt der Server die Historie ab dieser rv nach.
+
+Reproduktion (Skript $S/nak55/replay.pl): cm a anlegen (v=1), cm b anlegen, a auf v=2 und v=3 patchen; Watcher timeout 2. Zyklus 1: ADDED a v=3 rv=2971, ADDED b; gespeichert wird rv=2768 (kube-root-ca.crt, per names ausgefiltert, rv trotzdem übernommen). Zyklus 2 mit resourceVersion=2768: ADDED a v=1, ADDED b, MODIFIED a v=2, MODIFIED a v=3. Der Consumer sieht a: 3 -> 1 -> 2 -> 3, doppelte ADDED, und DELETED für Objekte, die vor dem Watch-Start schon weg waren (tls-probe im ersten Lauf).
+
+Lösungsansatz: allowWatchBookmarks=true senden; der Server (v1.36 geprüft mit kubectl get --raw) schickt nach den Initial-Events ein BOOKMARK mit annotation k8s.io/initial-events-end und der aktuellen rv, sonst periodisch. Watcher: BOOKMARK übernimmt nur die rv, zählt als Event (min_watch_duration, Failure-Reset), wird nicht dispatcht (auch nicht an on_event). Ältere Server senden das initial-events-end-Bookmark evtl. nicht; Alternative wäre list-then-watch wie client-go. Designentscheidung, daher nicht vor dem Release 0.009 umgesetzt. Kubernetes::REST watch() (sync) gibt $last_rv genauso zurück: gleiche Frage auf dem kubernetes-rest-Board.
