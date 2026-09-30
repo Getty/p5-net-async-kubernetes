@@ -1,0 +1,30 @@
+---
+claimed_at: 2026-09-30T05:37:33Z
+claimed_by: nak-worker
+class: standard
+completed: 2026-09-30T05:37:33Z
+created: 2026-09-30T05:05:35Z
+id: 72
+priority: low
+started: 2026-09-30T05:24:43Z
+status: done
+tags:
+- cleanup
+- deps
+title: Drop the Kubernetes::REST 1.108 compatibility paths (minimum is 1.109 since
+  k71)
+updated: 2026-09-30T05:37:38Z
+---
+
+k71 (3c7c4d5) raised the cpanfile minimum to Kubernetes::REST 1.109, so the 1.108 branches are unreachable for installs. Not a 0.009 release blocker (harmless, suite green), but stale:
+- lib/Net/Async/Kubernetes.pm: discover() fallback when REST lacks prepare_discovery_requests/absorb_discovery (~l.578-585) and its POD item (~l.635-640, "1.108 has neither"); POD "before 1.109 that one fell back" (~l.169); comment ~l.407; ERRORS POD (~l.2862-2866) still says string vs APIError depending on the REST version.
+- t/39-mock-http-failures.t: skip when Kubernetes::REST::APIError is missing (l.207-211); t/42-mock-discover.t: $SEAM branch + "as 1.108 is" subtest; t/35 comments naming 1.108 as the pin; t/20, t/21 header comments.
+- .claude/skills/nak-core/SKILL.md: l.419 still lists "Kubernetes::REST >= 1.108" as the pin; l.140, 155-159, 170-173, 401-402, 426-432 describe 1.108 behaviour.
+- maint/prove-pinned.sh needs Kubernetes::REST 1.109 on CPAN, so it works only once 1.109 is released.
+Owner: nak-worker (code/tests), nak-pod-writer (POD). Verified meanwhile: suite green against IO::K8s 1.108 (CPAN) + Kubernetes::REST 1.109 (repo lib), isolated lib, mock mode.
+
+2026-09-30 05:37 nak-core SKILL.md is a checked-in project skill (not in skilletor.json install list, tracked by git; only the other skills are skilletor artifacts) -> updated in repo: pin line now Kubernetes::REST >= 1.109, discover/APIError/k43/_exact_class passages no longer describe 1.108 behaviour. Kept on purpose (conservative, release tomorrow): the client-side guards _request_path apiVersion-prefix check, _usable_class probe and _exact_class - redundant with REST 1.109 but harmless; only their comments were reworded. Possible follow-up after release: drop them. Left: maint/prove-pinned.sh (works once 1.109 is on CPAN), t/40 '(since 1.108)' (historical fact about 'with'), Changes (k71 already dropped the fallbacks; discover is new in 0.009, the removed fallback never shipped).
+
+2026-09-30 05:37 Done: discover() fallback + its POD item removed; POD l.169 sentence and ERRORS item now say APIError only; comments in _usable_class/_request_path/_exact_class reworded; t/42 $SEAM, Test::RESTWithoutSeam, rest_class plumbing, 5 skips and the no-seam subtest removed; t/39 APIError skip removed, header reworded; t/35/t/20/t/21 header comments updated; nak-core skill updated. Verified: prove -lr t/ unit mode (no kubeconfig) against sibling repo libs IO::K8s + Kubernetes::REST 1.109: Files=48 Tests=356 PASS, only t/01 + t/02 skipped (live-only). dzil build clean, built POD podchecker OK, leftovers removed.
+
+2026-09-30 05:37 Committed as 023f459 (no Changes entry: the removed discover fallback never shipped, k71 already covers the 1.109 requirement).
