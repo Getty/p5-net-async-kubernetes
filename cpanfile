@@ -15,7 +15,7 @@ requires 'File::Temp';
 requires 'Scalar::Util';
 
 requires 'Kubernetes::REST', '1.109';
-requires 'IO::K8s', '1.108';
+requires 'IO::K8s', '1.109';
 
 on test => sub {
     requires 'Test::More', '0.98';
