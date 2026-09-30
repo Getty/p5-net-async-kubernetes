@@ -12,12 +12,11 @@ use Net::Async::Kubernetes;
 use MockTransport;
 use My::StaticWebSite;
 
-# Kubernetes::REST 1.108 has patch_status/update_status; Net::Async::Kubernetes
-# does not yet -- these are red until a worker card adds them. See
-# Kubernetes::REST's own patch_status/update_status (lib/Kubernetes/REST.pm)
-# for the semantics this exercises: update_status is the read-modify-write PUT
-# counterpart of update(), patch_status is patch() but against the /status
-# subresource with 'merge' (not 'strategic') as the default patch type.
+# patch_status/update_status, the Future counterparts of Kubernetes::REST's
+# own (lib/Kubernetes/REST.pm), whose semantics this exercises: update_status
+# is the read-modify-write PUT counterpart of update(), patch_status is
+# patch() but against the /status subresource with 'merge' (not 'strategic')
+# as the default patch type.
 
 my $loop = IO::Async::Loop->new;
 my $JSON = JSON::MaybeXS->new(utf8 => 1);

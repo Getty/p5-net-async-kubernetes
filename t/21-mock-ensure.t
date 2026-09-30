@@ -11,11 +11,10 @@ use JSON::MaybeXS;
 use Net::Async::Kubernetes;
 use MockTransport;
 
-# Kubernetes::REST 1.108 has ensure/ensure_all/ensure_only; Net::Async::Kubernetes
-# does not yet -- these are red until a worker card adds them. See
-# Kubernetes::REST's own ensure/ensure_all/ensure_only (lib/Kubernetes/REST.pm)
-# for the semantics this exercises: idempotent create-or-update with 404/409
-# race handling, PersistentVolumeClaim/Job special-casing, and prune-by-label.
+# ensure/ensure_all/ensure_only, the Future counterparts of Kubernetes::REST's
+# own (lib/Kubernetes/REST.pm), whose semantics this exercises: idempotent
+# create-or-update with 404/409 race handling, PersistentVolumeClaim/Job
+# special-casing, and prune-by-label.
 
 my $loop = IO::Async::Loop->new;
 my $JSON = JSON::MaybeXS->new(utf8 => 1);

@@ -165,8 +165,7 @@ That group and version are the only ones such a request goes to. When the
 cluster does not serve them, a qualified name is an unknown resource and an
 object or manifest with that C<apiVersion> is refused, even if another group
 or another version serves a Kind of the same name -- nothing is listed,
-changed or deleted there instead. This holds with every supported
-L<Kubernetes::REST>; before 1.109 that one fell back to the other group.
+changed or deleted there instead.
 
 A request for L<IO::K8s::Unstructured> that has no path -- without this
 option, for the explicit class name C<IO::K8s::Unstructured> (a class name
@@ -404,9 +403,8 @@ sub _usable_class {
 
     if ($class eq 'IO::K8s::Unstructured' && !$fabricated) {
         # A qualified name counts only in its own group/version (see
-        # _request_path): with Kubernetes::REST up to 1.108 another group
-        # serving the Kind was enough to resolve it. Asking for its path
-        # confirms it exactly, from the cached catalog, without a request.
+        # _request_path). Asking for its path confirms it exactly, from the
+        # cached catalog, without a request.
         return $class unless defined $name && !ref $name && $name =~ m{/};
         my ($path) = $self->_request_path($class, $name);
         return defined $path ? $class : (undef, $self->_unknown_resource_error($name));
@@ -475,12 +473,9 @@ sub _unstructured_hint {
 # in, which points here; a croaking caller adds its caller's own.
 #
 # An apiVersion in the hint - from a qualified name or the object - names
-# the one group/version the request may go to. Kubernetes::REST up to 1.108
-# looks it up in discovery and, when the cluster does not serve it, falls
-# back to any group serving a Kind of that name: list, delete and
-# ensure_only's prune went to that other resource. A path outside that
-# group/version is refused here as 1.109 refuses it (its k43), whichever
-# version is installed.
+# the one group/version the request may go to; a path outside it is refused
+# with Kubernetes::REST's own message (its k43), so list, delete and
+# ensure_only's prune never reach another group serving a Kind of that name.
 sub _request_path {
     my ($self, $class, $ident, %args) = @_;
     my %hint = $self->_unstructured_hint($class, $ident);
@@ -502,15 +497,13 @@ sub _request_path {
 }
 
 # The name to hand Kubernetes::REST's inflate_object, inflate_list and
-# process_watch_chunk for $class. Up to 1.108 they resolve a name again, and
-# a single-segment class of the caller's own ('+Gizmo' in the resource_map,
-# which expand_class returns as 'Gizmo') reads to them as the Kind Gizmo:
-# IO::K8s::Gizmo, or whatever class the map gives that Kind - a list item
-# inflated that way belongs to another group, and ensure_only prunes it
-# there. A loaded IO::K8s resource class therefore goes over as '+Class',
-# which is taken exactly; anything else is left as it is. Mirrors the private
-# helper of the same name in Kubernetes::REST 1.109, which is not part of its
-# public seam.
+# process_watch_chunk for $class. A single-segment class of the caller's own
+# ('+Gizmo' in the resource_map, which expand_class returns as 'Gizmo') must
+# not read to them as the Kind Gizmo - IO::K8s::Gizmo, or whatever class the
+# map gives that Kind. A loaded IO::K8s resource class therefore goes over as
+# '+Class', which is taken exactly; anything else is left as it is. Mirrors
+# the private helper of the same name in Kubernetes::REST, which is not part
+# of its public seam.
 sub _exact_class {
     my ($self, $class) = @_;
     return '+' . $class
@@ -576,15 +569,6 @@ sub discover {
     my $rest = $self->_rest;
     return Future->done unless $self->resource_map_from_cluster;
 
-    # Kubernetes::REST before the seam (1.108) reads discovery only through its
-    # own synchronous io: that read, now instead of on first use.
-    unless ($rest->can('prepare_discovery_requests') && $rest->can('absorb_discovery')) {
-        return Future->call(sub {
-            $rest->fetch_resource_map;
-            return Future->done;
-        });
-    }
-
     my %requests = $rest->prepare_discovery_requests;
     my @roots = sort keys %requests;
     return Future->needs_all(
@@ -631,14 +615,6 @@ and discovery is read synchronously on first use, as without C<discover>.
 described in L</ERRORS>, C<< ->fail($error, 'http', $response) >>. A request
 that gets no response fails it the way the transport reports it, and a
 document that cannot be read (not JSON) with the reason.
-
-=item * A L<Kubernetes::REST> without the methods this takes
-(C<prepare_discovery_requests>, C<absorb_discovery> -- 1.108 has neither)
-reads discovery through its synchronous backend right away instead, blocking
-the loop once, and C<discover> resolves when it has; a failure fails the
-L<Future> with its message. Calling it is therefore always safe. Called
-again, it does not read anew: that L<Kubernetes::REST> keeps what it read
-until its C<invalidate_discovery>.
 
 =back
 
@@ -2859,9 +2835,9 @@ each of them documents.
 =item * A response the API server refuses (status 400 and up) fails it
 following L<Future>'s convention for failure details:
 C<< ->fail($error, 'http', $response) >>. C<$error> is exactly what
-L<Kubernetes::REST/check_response> throws: a L<Kubernetes::REST::APIError>
-object with a L<Kubernetes::REST> that has that class, and the message
-string (C<Kubernetes API error (get Pod): 404 ...>) with one that does not.
+L<Kubernetes::REST/check_response> throws, a L<Kubernetes::REST::APIError>
+object, which stringifies to the message
+(C<Kubernetes API error (get Pod): 404 ...>).
 C<$response> is the L<Kubernetes::REST::HTTPResponse>, whose C<status>
 tells a C<404> from a C<409> without parsing the message:
 

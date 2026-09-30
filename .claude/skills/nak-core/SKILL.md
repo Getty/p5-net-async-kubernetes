@@ -137,8 +137,7 @@ Future-returning method returns `Future->fail($message)`. `ensure_all` never cro
 an `ensure` croak fails its chain. **Errors of the flow itself** are always failed
 Futures: HTTP ≥ 400 → `_checked_response($response, $context)` →
 `Future->fail($err, 'http', $response)`, `$err` exactly what `check_response` throws
-(string up to 1.109, a `Kubernetes::REST::APIError` object where REST has that class —
-never rebuilt here); transport failures as the transport reports them. Every status
+(a `Kubernetes::REST::APIError` object — never rebuilt here); transport failures as the transport reports them. Every status
 check goes through `_checked_response` (`_checked_request` = `_do_request` + it), the
 unchecked `ensure`/`ensure_only` branches included; only the Watcher still calls
 `check_response` itself, for the cause text of its `WatchFailed` report.
@@ -151,14 +150,12 @@ unchecked `ensure`/`ensure_only` branches included; only the Watcher still calls
   Its map resolves shipped Kinds; a Kind discovery lists but nothing ships resolves
   to `IO::K8s::Unstructured`.
 - `discover` (k59, never called implicitly): off without `resource_map_from_cluster`
-  (done, nothing sent). With REST's seam (`can` both `prepare_discovery_requests`
-  and `absorb_discovery`, REST > 1.108): both requests through `_checked_request`
+  (done, nothing sent). Otherwise REST's `prepare_discovery_requests`: both
+  requests through `_checked_request`
   (`needs_all`; ≥ 400 → `fail($err, 'http', $response)`), then `absorb_discovery`
   inside `then` (a croak — bad JSON — fails the Future); `absorb_discovery` false =
-  legacy discovery, still done, REST reads it synchronously on first use. Without the
-  seam (1.108): `fetch_resource_map` inside `Future->call` — blocking, cached, a
-  second call reads nothing anew. Test: `t/42` (recording REST io; a REST subclass
-  hiding the seam via `can` runs the fallback on any REST).
+  legacy discovery, still done, REST reads it synchronously on first use. Test:
+  `t/42` (recording REST io).
 - Unstructured has no class-level api_version; `build_path` needs `kind` (and
   `api_version`) from the caller and takes plural and scope from the discovery catalog.
   `build_path` is called in one place only, `_request_path($class, $ident, %args)`
@@ -167,10 +164,10 @@ unchecked `ensure`/`ensure_only` branches included; only the Watcher still calls
   `kind`/`apiVersion` of an Unstructured object; a name split like `expand_class`
   splits it (a qualified `group/version/Kind` keeps group and version; `+…` and
   `…::…` names carry no Kind).
-- An `apiVersion` in the hint pins the group/version. Kubernetes::REST ≤ 1.108 falls
-  back to any group serving the Kind when the pinned one is not served (fixed in 1.109,
-  its k43); the client refuses that itself: `_request_path` rejects a path outside
-  `/apis/<group>/<version>/` (`/api/<version>/` for core) with 1.109's message, and
+- An `apiVersion` in the hint pins the group/version. Kubernetes::REST refuses a
+  pinned one the cluster does not serve (its k43); the client checks that itself as
+  well: `_request_path` rejects a path outside
+  `/apis/<group>/<version>/` (`/api/<version>/` for core) with REST's message, and
   `_usable_class` probes a qualified name that resolved to Unstructured through
   `_request_path` (no request, cached catalog) → "unknown resource".
 - Without discovery (`resource_map_from_cluster` 0, the default), or for an explicit
@@ -416,20 +413,19 @@ sibling working tree is checked with `prove -l -I/home/getty/dev/kubernetes-rest
 - `sub delete`/`exec`/`log` shadow builtins in the client package (and `close` in
   PortForwardSession) — fine as methods, but bareword calls inside those packages hit
   CORE.
-- cpanfile pins: `Kubernetes::REST >= 1.108`, `IO::K8s >= 1.108`, `IO::Async >= 0.80`,
+- cpanfile pins: `Kubernetes::REST >= 1.109`, `IO::K8s >= 1.108`, `IO::Async >= 0.80`,
   `IO::Async::SSL >= 0.12`, `Net::Async::HTTP >= 0.49`,
   `Net::Async::WebSocket::Client >= 0.14`, `Future >= 0.47`, perl 5.020. Both K8s deps
   are Getty dists — pin released CPAN versions only (skill `getty-perl-core`).
 - The locally installed Kubernetes::REST / IO::K8s is often ahead of the pin. Check
   behaviour that matters against the pinned releases with `maint/prove-pinned.sh`
   (see the test harness section), not with a `-I` overlay of an older `lib/`.
-- Kubernetes::REST 1.108's `inflate_object`/`inflate_list`/`process_watch_chunk`
-  resolve the class name again: a single-segment class (`'+Gizmo'` → `Gizmo`) is read
-  as a Kind — dies, drops list items, or inflates as whatever the map's short key
-  `Gizmo` names (and `ensure_only` then prunes in that group). Fixed in 1.109 (its
-  k42); the client does not rely on it: every inflate call site, the Watcher's
-  `process_watch_chunk` included, passes `_exact_class($class)` (`'+Class'` for a
-  loaded class doing `IO::K8s::Role::Resource`, the rule of REST 1.109's private
-  helper). A new inflate call site must do the same.
+- A single-segment class (`'+Gizmo'` → `Gizmo`) handed to Kubernetes::REST's
+  `inflate_object`/`inflate_list`/`process_watch_chunk` as it is could be read as a
+  Kind (REST before 1.109 did: dropped list items, inflated as whatever the map's
+  short key `Gizmo` names, `ensure_only` pruned in that group). Every inflate call
+  site, the Watcher's `process_watch_chunk` included, passes `_exact_class($class)`
+  (`'+Class'` for a loaded class doing `IO::K8s::Role::Resource`, the rule of REST's
+  private helper). A new inflate call site must do the same.
 - POD style is inline `=method`/`=attr` next to the sub (`Kubernetes.pm`,
   `Watcher.pm`); `Controller.pm` keeps its POD in `__END__` — match per-file.

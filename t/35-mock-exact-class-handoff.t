@@ -22,11 +22,10 @@ use MockTransport;
 #
 # karr k57: inflating the server's answer is Kubernetes::REST's
 # inflate_object, inflate_list and process_watch_chunk, which resolved the
-# name again the same way until 1.109 (its own k42) - with the pinned 1.108 a
-# listed Gizmo became whatever the short key Gizmo names, and ensure_only
-# deleted it in that other group. The client hands them the resolved class
-# with a '+' as well, so the class of what comes back no longer depends on
-# the Kubernetes::REST version, and everything below is checked on 1.108 too.
+# name again the same way before 1.109 (its own k42) - a listed Gizmo became
+# whatever the short key Gizmo names, and ensure_only deleted it in that
+# other group. The client hands them the resolved class with a '+' as well,
+# so the class of what comes back is the one the client resolved.
 #
 # Mock-only: everything here is request routing, nothing needs a cluster.
 

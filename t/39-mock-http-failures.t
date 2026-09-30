@@ -10,10 +10,10 @@ use Net::Async::Kubernetes;
 use MockTransport;
 
 # karr k61: an API server's refusal (status >= 400) fails the Future the way
-# Future's convention has it - ->fail($message, 'http', $response). $message
-# is exactly what Kubernetes::REST's check_response throws, so its text does
-# not change (and a Kubernetes::REST that throws an error object hands that
-# object on); $response is the Kubernetes::REST::HTTPResponse, so a caller
+# Future's convention has it - ->fail($error, 'http', $response). $error is
+# exactly what Kubernetes::REST's check_response throws, the
+# Kubernetes::REST::APIError object, handed on as it is, so its text does not
+# change; $response is the Kubernetes::REST::HTTPResponse, so a caller
 # tells a 404 or 409 from anything else by ->status instead of parsing text:
 #
 #   $kube->delete(...)->catch(http => sub {
@@ -204,12 +204,6 @@ subtest 'a caller can catch the http category and branch on the status' => sub {
 };
 
 subtest 'a Kubernetes::REST::APIError from check_response is handed on as it is' => sub {
-    # Only a Kubernetes::REST that has the class throws it; the pinned 1.108
-    # throws the string checked above.
-    plan skip_all => 'Kubernetes::REST ' . Kubernetes::REST->VERSION
-        . ' has no Kubernetes::REST::APIError; check_response throws a string'
-        unless eval { require Kubernetes::REST::APIError; 1 };
-
     my $kube = make_kube();
     MockTransport::mock_response('GET', "$CMS/cm1", status_body(404), 404);
     my $f = $kube->get('ConfigMap', 'cm1', namespace => 'default');

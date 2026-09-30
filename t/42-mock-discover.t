@@ -12,21 +12,15 @@ use MockTransport;
 # karr k59: with resource_map_from_cluster, Kubernetes::REST reads discovery
 # (GET /api, GET /apis) through its own synchronous io on first use, blocking
 # the loop and bypassing this client's transport. discover() reads it through
-# the client's own transport instead, when Kubernetes::REST has the seam for
+# the client's own transport instead, through Kubernetes::REST's seam for
 # that (prepare_discovery_requests / absorb_discovery), and hands it over;
 # names and the resource map then resolve without a request of Kubernetes::REST's
-# own. Without the seam (Kubernetes::REST 1.108) it runs the synchronous
-# discovery right away, so it can always be called.
+# own.
 #
 # Mock-only. Kubernetes::REST's own io is not the mocked transport: each
 # client below builds its Kubernetes::REST with an io of its own that records
 # every request it is asked to send (as in t/32), so a test sees which of the
 # two carried discovery.
-
-my $SEAM = Kubernetes::REST->can('prepare_discovery_requests')
-    && Kubernetes::REST->can('absorb_discovery');
-note($SEAM ? 'Kubernetes::REST has the discovery seam'
-           : 'Kubernetes::REST without the discovery seam');
 
 {
     package Test::RecordingIO;
@@ -57,33 +51,19 @@ note($SEAM ? 'Kubernetes::REST has the discovery seam'
 }
 
 {
-    # A Kubernetes::REST as 1.108 is: without the discovery seam.
-    package Test::RESTWithoutSeam;
-    use parent -norequire, 'Kubernetes::REST';
-
-    sub can {
-        my ($self, $method) = @_;
-        return if $method eq 'prepare_discovery_requests' || $method eq 'absorb_discovery';
-        return $self->SUPER::can($method);
-    }
-}
-
-{
     package Test::DiscoverKube;
     use parent -norequire, 'Net::Async::Kubernetes';
 
     sub configure {
         my ($self, %params) = @_;
-        for my $key (qw(sync_io rest_class)) {
-            $self->{$key} = delete $params{$key} if exists $params{$key};
-        }
+        $self->{sync_io} = delete $params{sync_io} if exists $params{sync_io};
         $self->SUPER::configure(%params);
     }
 
     # The client's own Kubernetes::REST, with the recording io.
     sub rest {
         my ($self) = @_;
-        $self->{_test_rest} //= ($self->{rest_class} // 'Kubernetes::REST')->new(
+        $self->{_test_rest} //= Kubernetes::REST->new(
             server                    => $self->server,
             credentials               => $self->credentials,
             resource_map_from_cluster => $self->resource_map_from_cluster,
@@ -154,7 +134,6 @@ sub make_kube {
         credentials               => { token => 'mock-token' },
         resource_map_from_cluster => $args{from_cluster} // 1,
         sync_io                   => $io,
-        ($args{rest_class} ? (rest_class => $args{rest_class}) : ()),
     );
     MockTransport::install($kube);
     $loop->add($kube);
@@ -189,7 +168,6 @@ subtest 'without discover, first use reads discovery through the synchronous io'
 };
 
 subtest 'discover reads discovery through the client transport' => sub {
-    plan skip_all => 'Kubernetes::REST has no discovery seam' unless $SEAM;
     my ($kube, $io) = make_kube();
     MockTransport::mock_response('GET', $_, $AGGREGATED{$_}) for keys %AGGREGATED;
 
@@ -214,7 +192,6 @@ subtest 'discover reads discovery through the client transport' => sub {
 };
 
 subtest 'discover again replaces what was read before' => sub {
-    plan skip_all => 'Kubernetes::REST has no discovery seam' unless $SEAM;
     my ($kube, $io) = make_kube();
     MockTransport::mock_response('GET', $_, $AGGREGATED{$_}) for keys %AGGREGATED;
     discover_ok($kube, 'first') or return;
@@ -233,7 +210,6 @@ subtest 'discover again replaces what was read before' => sub {
 };
 
 subtest 'legacy discovery: discover completes, first use reads it synchronously' => sub {
-    plan skip_all => 'Kubernetes::REST has no discovery seam' unless $SEAM;
     my ($kube, $io) = make_kube(sync => served(%LEGACY));
     MockTransport::mock_response('GET', $_, $LEGACY{$_}) for qw(/api /apis);
 
@@ -247,7 +223,6 @@ subtest 'legacy discovery: discover completes, first use reads it synchronously'
 };
 
 subtest 'an HTTP error fails discover with category http and the response' => sub {
-    plan skip_all => 'Kubernetes::REST has no discovery seam' unless $SEAM;
     my ($kube, $io) = make_kube();
     MockTransport::mock_response('GET', '/api', $AGGREGATED{'/api'});
     MockTransport::mock_response('GET', '/apis',
@@ -264,7 +239,6 @@ subtest 'an HTTP error fails discover with category http and the response' => su
 };
 
 subtest 'a body that is not JSON fails discover instead of dying' => sub {
-    plan skip_all => 'Kubernetes::REST has no discovery seam' unless $SEAM;
     my ($kube, $io) = make_kube();
     MockTransport::mock_response('GET', '/api', $AGGREGATED{'/api'});
     MockTransport::mock_response('GET', '/apis', 'this is not JSON');
@@ -272,27 +246,6 @@ subtest 'a body that is not JSON fails discover instead of dying' => sub {
     my $f = discover_ok($kube, 'garbage') or return;
     ok($f->is_failed, 'the Future failed');
     ok(length(($f->failure)[0] // ''), 'with the decode error');
-};
-
-subtest 'without the seam discover reads discovery synchronously, right away' => sub {
-    my ($kube, $io) = make_kube(sync => served(%AGGREGATED), rest_class => 'Test::RESTWithoutSeam');
-
-    my $f = discover_ok($kube, 'no seam') or return;
-    ok($f->is_done, 'the Future is done');
-    is_deeply($io->requests, [ 'GET /api', 'GET /apis' ], 'discovery went over the synchronous io, now');
-    is_deeply(transport_calls(), [], 'not over the client transport');
-
-    my $list = eval { $kube->list('Widget', namespace => 'default')->get };
-    is($@, '', 'a request for a discovered Kind resolves');
-    is_deeply($io->requests, [ 'GET /api', 'GET /apis' ], 'without another discovery request');
-
-    my ($failing) = make_kube(rest_class => 'Test::RESTWithoutSeam',
-        sync => { '/api' => [ 503, { kind => 'Status', code => 503 } ] });
-    my $failed = discover_ok($failing, 'no seam, 503') or return;
-    ok($failed->is_failed, 'a discovery error fails the Future');
-    # Kubernetes::REST's own wording: 'discovery GET /api failed: 503' up to
-    # 1.109, 'Kubernetes API error (discovery GET /api): 503 ...' after (its k59).
-    like(($failed->failure)[0], qr{discovery GET /api(?:\)| failed): 503}, 'with the reason');
 };
 
 subtest 'without resource_map_from_cluster discover sends nothing' => sub {
