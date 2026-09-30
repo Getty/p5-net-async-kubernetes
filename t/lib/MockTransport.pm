@@ -93,7 +93,8 @@ sub mock_response_queue {
 # _do_streaming_request has it since karr k33: nothing is streamed - the
 # registered events are not delivered - and the request resolves, with or
 # without complete, with that status and a Status error body for
-# check_response. fail still fails it instead.
+# check_response - or the body option: a string as it is, a hashref as JSON.
+# fail still fails it instead.
 
 sub mock_watch_events {
     my ($path, $events, $opts) = @_;
@@ -119,20 +120,22 @@ sub mock_duplex_session {
 }
 
 # A streaming request the API server rejected with $status: one tick later
-# $f resolves with that status and a Status error body - nothing reaches the
-# chunk callback, as with the real transport - or fails with $fail.
+# $f resolves with that status and $body (a string as it is, a hashref as
+# JSON; default a Status error body) - nothing reaches the chunk callback, as
+# with the real transport - or fails with $fail.
 sub _rejected_stream {
-    my ($kube, $f, $path, $status, $fail) = @_;
+    my ($kube, $f, $path, $status, $fail, $body) = @_;
+    $body //= {
+        kind => 'Status', apiVersion => 'v1', status => 'Failure',
+        message => "Mock: $path answers $status",
+        code => $status,
+    };
     $kube->loop->later(sub {
         return if $f->is_cancelled;
         return $f->fail($fail) if $fail;
         $f->done(Kubernetes::REST::HTTPResponse->new(
             status  => $status,
-            content => $json->encode({
-                kind => 'Status', apiVersion => 'v1', status => 'Failure',
-                message => "Mock: $path answers $status",
-                code => $status,
-            }),
+            content => ref $body ? $json->encode($body) : $body,
         ));
     });
     return $f;
@@ -226,7 +229,7 @@ sub install {
             my $opts = $watch_opts{$path} || {};
             my $status = $opts->{status} // 200;
 
-            return _rejected_stream($self, $f, $path, $status, $opts->{fail})
+            return _rejected_stream($self, $f, $path, $status, $opts->{fail}, $opts->{body})
                 if $status >= 400;
 
             if (@$events || $opts->{complete} || $opts->{fail}) {

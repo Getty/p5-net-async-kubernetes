@@ -6,7 +6,7 @@ use warnings;
 use parent 'IO::Async::Notifier';
 
 use Carp qw(croak);
-use Scalar::Util qw(looks_like_number weaken);
+use Scalar::Util qw(blessed looks_like_number weaken);
 use Kubernetes::REST::HTTPResponse;
 
 sub configure {
@@ -273,8 +273,9 @@ is reported first, as above). The watcher builds this C<Status> itself.
 C<reason> is C<WatchFailed>, C<code> the HTTP status of a rejected request,
 the C<code> of the C<ERROR> event the stream ended on, or C<0> when neither
 is there (no response arrived, or the stream closed without an event),
-C<message> names the resource, what the watcher does next and the cause, and
-C<details> carries C<kind> (the watched resource) and, while the watcher
+C<message> names the resource, what the watcher does next and the cause (for
+a rejected request its HTTP status, reason and message, as in C<HTTP 403
+Forbidden: pods is forbidden: ...>), and C<details> carries C<kind> (the watched resource) and, while the watcher
 retries, C<retryAfterSeconds>:
 
     {
@@ -508,6 +509,25 @@ sub _error_event_cause {
         . (defined $error->{message} ? ': ' . $error->{message} : '');
 }
 
+# The cause of a failed watch attempt as its report words it, for humans: a
+# Kubernetes::REST::APIError as "HTTP <code> <reason>: <message>" from its
+# accessors (the body when it holds no Status), anything else as its text
+# without the Perl location a croak or die ends in.
+sub _cause_text {
+    my ($self, $cause) = @_;
+    return 'unknown error' unless defined $cause;
+    if (blessed $cause && $cause->isa('Kubernetes::REST::APIError')) {
+        my $text = join ' ', 'HTTP', $cause->code, grep { defined && length } $cause->reason;
+        my $detail = $cause->message // $cause->body;
+        $detail =~ s/\s+\z//;
+        return length $detail ? $text . ': ' . $detail : $text;
+    }
+    my $text = "$cause";
+    $text =~ s/\s+\z//;
+    $text =~ s/ at \S+ line \d+\.\z//;
+    return $text;
+}
+
 # A failed watch attempt: a request that failed outright, was rejected with
 # HTTP status $code, or opened a stream that ended badly ($code then the
 # ERROR event's, if any). Schedules the next attempt with exponential
@@ -518,8 +538,7 @@ sub _watch_failed {
     my ($self, $cause, $code) = @_;
     my $failures = ++$self->{_failures};
     my $max_retries = $self->max_retries;
-    $cause = defined $cause ? "$cause" : 'unknown error';
-    $cause =~ s/\s+\z//;
+    $cause = $self->_cause_text($cause);
 
     my ($delay, $next);
     if (defined $max_retries && $failures > $max_retries) {

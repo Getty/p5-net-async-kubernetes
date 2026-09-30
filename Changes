@@ -74,8 +74,9 @@ Revision history for Net-Async-Kubernetes
    missing, a TLS or connection error, an unreachable API server) or that
    the API server rejects (401, 403, 5xx) is now reported to `on_error` as
    a Status hashref with `reason` `WatchFailed`, the HTTP status in `code`
-   (0 when no response arrived), the cause in `message` and the next delay
-   in `details.retryAfterSeconds`; without an `on_error` it is warned
+   (0 when no response arrived), the cause in `message` (a rejection as
+   `HTTP 403 Forbidden: <message of the answer>`) and the next delay in
+   `details.retryAfterSeconds`; without an `on_error` it is warned
    about. So is a watch stream that ends badly, which used to reconnect at
    once, in a tight loop against the API server: one that closes within
    the new `min_watch_duration` (1s, client-go's threshold for the same

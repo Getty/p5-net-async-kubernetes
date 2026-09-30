@@ -246,7 +246,10 @@ croaks with.
   does; a 410 counts as an event for the empty-stream rule). Each failure is
   reported — whatever `event_types` says — as a `Status` hashref (`reason =>
   'WatchFailed'`, `code` = HTTP status, the ending ERROR event's code, or 0,
-  `message` "watch X failed, retrying in Ns: cause", `details => {kind,
+  `message` "watch X failed, retrying in Ns: cause" (`_cause_text`, k74: an
+  APIError as `HTTP <code> <reason>: <message>` from its accessors, the body when
+  it holds no Status; anything else without its trailing ` at FILE line N.`),
+  `details => {kind,
   retryAfterSeconds}`) to `on_error`, else `warn`. Past `max_retries` consecutive
   failures it stops first, then reports "giving up after N retries". No
   `allowWatchBookmarks`, no informer cache.

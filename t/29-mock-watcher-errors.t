@@ -328,8 +328,8 @@ subtest 'a rejected watch request (HTTP 403) is a failed attempt' => sub {
     is(watch_requests(), 1, 'no immediate reconnect after a rejection');
     is(scalar @errors, 1, 'the rejection is reported');
     is($errors[0]{code}, 403, 'code carries the HTTP status');
-    like($errors[0]{message},
-        qr/^watch Pod failed, retrying in 1s: Kubernetes API error \(watch Pod\): 403/,
+    is($errors[0]{message},
+        "watch Pod failed, retrying in 1s: HTTP 403: Mock: $PATH answers 403",
         'message carries the API error');
     is_deeply(delays(), [1], 'retried after the reconnect delay');
     $watcher->stop;
@@ -355,8 +355,8 @@ subtest 'a rejected watch request delivers no events, only its error body' => su
     is(scalar @errors, 1, 'the rejection is reported, without complete => 1');
     is($errors[0] && $errors[0]{code}, 403, 'code carries the HTTP status');
     like($errors[0] && $errors[0]{message},
-        qr/Kubernetes API error \(watch Pod\): 403 \{.*"code":403/,
-        'the cause carries the Status error body');
+        qr/: HTTP 403: \QMock: $PATH answers 403\E\z/,
+        'the cause carries the message of the Status error body');
     is_deeply(delays(), [1], 'retried after the reconnect delay');
     $watcher->stop;
 };
@@ -378,6 +378,51 @@ subtest 'without on_error a failed watch request warns' => sub {
     like($warnings[0] // '', qr/^watch Pod failed, retrying in 1s: Connection refused\n\z/,
         'the warning carries the report message');
     is_deeply(delays(), [1], 'and the watcher still retries');
+    $watcher->stop;
+};
+
+# karr k74: the report is for humans; the Perl location an error was thrown
+# at - Kubernetes::REST::APIError stringifies with it - is noise there.
+subtest 'the cause of a failed watch carries no Perl location' => sub {
+    my $kube = make_kube();
+    MockTransport::mock_watch_events($PATH, [], { status => 403, body => {
+        kind => 'Status', apiVersion => 'v1', status => 'Failure',
+        reason => 'Forbidden', code => 403,
+        message => 'pods is forbidden: User "system:anonymous" cannot watch resource "pods"',
+    }});
+
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
+    my $watcher = $kube->watcher('Pod',
+        namespace        => 'default',
+        reconnect_jitter => 0,
+        on_added         => sub {},
+    );
+    settle();
+
+    is($warnings[0] // '',
+        'watch Pod failed, retrying in 1s: HTTP 403 Forbidden: pods is forbidden: '
+            . qq{User "system:anonymous" cannot watch resource "pods"\n},
+        'a rejection reads HTTP code, reason and message of the Status');
+
+    MockTransport::mock_watch_events($PATH, [], { status => 502, body => "Bad Gateway\n" });
+    fire_timer();
+    settle();
+    is($warnings[1] // '', "watch Pod failed, retrying in 2s: HTTP 502: Bad Gateway\n",
+        'a body that is no Status stands in for the message');
+
+    MockTransport::mock_watch_events($PATH, [], { status => 503, body => '' });
+    fire_timer();
+    settle();
+    is($warnings[2] // '', "watch Pod failed, retrying in 4s: HTTP 503\n",
+        'without a body, the status alone');
+
+    MockTransport::mock_watch_events($PATH, [],
+        { fail => "Something broke at /some/where/Module.pm line 42.\n" });
+    fire_timer();
+    settle();
+    is($warnings[3] // '', "watch Pod failed, retrying in 8s: Something broke\n",
+        'any other cause drops a trailing location');
     $watcher->stop;
 };
 
