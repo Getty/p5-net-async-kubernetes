@@ -1,0 +1,33 @@
+---
+claimed_at: 2026-09-30T05:50:03Z
+claimed_by: nak-worker
+class: standard
+completed: 2026-09-30T05:50:03Z
+created: 2026-09-27T03:20:34Z
+id: 55
+priority: low
+started: 2026-09-30T05:38:20Z
+status: done
+tags:
+- watcher
+- live
+title: Live-Prüfung von k33 auf minikube
+updated: 2026-09-30T05:50:03Z
+---
+
+Nur auf ausdrückliche Freigabe, gegen einen wegwerfbaren Cluster: Timeout-Zyklus des Watches, 403 über RBAC, nicht erreichbarer API-Server. Der TLS-Pfad ist in t/30 nicht abgedeckt.
+
+Nach k51/k52/k59 (2026-09-27): die Live-Prüfung soll auch den Short-Stream-Backoff (min_watch_duration), den Jitter und discover() gegen einen echten Cluster abdecken. Weiterhin nur auf ausdrückliche Freigabe.
+
+Live-Prüfung 2026-09-30 auf kwok statt minikube (echter kube-apiserver v1.36.1, HTTPS mit eigener CA, RBAC an; Kubelets simuliert). Skripte im Session-Scratchpad nak55/, nicht im Repo. Repo-Stand 023f459.
+- TLS: Kubeconfig mit Dateipfaden und mit *-data inline (PEM-Tempfiles) -> SSL_verify_mode=1, CA/Cert/Key gesetzt; discover, list, create/get/delete ok. Falsche CA: list scheitert sofort (0.01s) mit "certificate verify failed [ssl]"; Watcher meldet es an on_error mit Backoff, gibt bei max_retries auf. PASS.
+- Timeout-Zyklus: timeout 3, 19s: 7 Watch-Requests im 3.0s-Takt, resourceVersion vom letzten Event übernommen (2910, 2914, 2921, ..., 2936), ruhige Zyklen reconnecten sofort ohne on_error, keine doppelten/fehlenden Events (7 ADDED, 1 DELETED, 1 MODIFIED). PASS. 410 live (resourceVersion=1): sofort ohne rv neu verbunden, kein on_error, ERROR nicht dispatcht. PASS.
+- Befund: nach einem Watch ohne resourceVersion wird die rv des zuletzt gelisteten Objekts übernommen -> Reconnect spielt Historie ab, Zustand läuft rückwärts (a: 3 -> 1 -> 2 -> 3). Vorbestehend, Karte #73 (high), vor dem Release nicht gefixt.
+- 403 via RBAC (SA ohne Rechte, kubectl create token): list/get/create -> failed Future (Kubernetes::REST::APIError code 403 reason Forbidden, Kategorie http, Response). Watcher: on_error code=403 WatchFailed mit Server-Grund, Backoff 0.89/1.98/3.43/6.95/14.0s (Jitter); max_retries 2 -> "giving up after 2 retries", gestoppt; ohne on_error warn. 401 (falsches Token) genauso. PASS.
+- Unerreichbarer API-Server (127.0.0.1:1): discover/list failed Future "Connection refused"; Watcher on_error code=0, Abstände 0.99/1.67/3.39/6.77/14.7s, 0.01s User-CPU in 20s -> keine Hot-Loop. Cap (delay 0.2, max 0.8, jitter 0.5): angekündigte Delays = tatsächliche Abstände (±10ms), alle <= 0.8. PASS.
+- Short-Stream (min_watch_duration): echter Server, timeout 1 + leere Selektion + min_watch_duration 2 -> "stream closed after 1.0s without an event", Backoff 1/2/4s; mit Default 1 und timeout 2 saubere Zyklen ohne on_error. Fake-Endpoint über echtes TCP (200, sofort zu): Backoff statt enger Schleife; mit Nicht-410-ERROR-Event (500): Event an on_error, dann WatchFailed code 500 mit Backoff. PASS.
+- Jitter: 6 gemeinsam scheiternde Watcher streuen je Schritt (0.83-0.98 / 1.72-1.85 / 3.39-3.88s). PASS.
+- discover(): 0.26s, danach 0 Requests über das synchrone LWP-io von REST (gezählt); CRD-Kind Comb bare und qualifiziert -> Unstructured, Watcher auf Comb ok; neue CRD erst nach erneutem discover() auflösbar, ensure darauf ok. Ohne discover(): GET /api und /apis über das sync io (wie dokumentiert). PASS.
+- Repo-Live-Tests: TEST_KUBERNETES_REST_KUBECONFIG=kwok prove -l t/01-crud.t t/02-watcher.t: 2 Dateien, 7 Tests, PASS (live).
+Nebenbefunde: #74 (WatchFailed-Meldung trägt Perl-Ort, low). IO::K8s serialisiert HashRef[Str]-Werte (ConfigMap data, labels) als JSON-Zahl, wenn der Perl-Wert numerisch ist -> 400 BadRequest; ArrayRef[Str] wird gequotet. Gehört aufs io-k8s-p5-Board (hier nicht angelegt).
+Auf kwok nicht prüfbar: nichts aus dem Auftrag; nur Nicht-410-ERROR-Events mitten im Stream lassen sich einem echten Server nicht entlocken, dafür Fake-Endpoint über echtes TCP. Kein Code geändert, kein Commit.
