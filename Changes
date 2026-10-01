@@ -1,6 +1,6 @@
 Revision history for Net-Async-Kubernetes
 
-{{$NEXT}}
+0.009     2026-10-01 03:40:55Z
  - Require IO::K8s 1.109: string-map fields (labels, annotations, ConfigMap
    data, ...) now serialize numeric values as JSON strings, which the API
    server requires.
