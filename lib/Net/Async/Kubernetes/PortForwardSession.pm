@@ -1,6 +1,6 @@
 package Net::Async::Kubernetes::PortForwardSession;
 # ABSTRACT: Duplex websocket session for pod port-forward, exec and attach
-our $VERSION = '0.009';
+our $VERSION = '0.010';
 use strict;
 use warnings;
 use Carp qw(croak);
