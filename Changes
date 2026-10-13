@@ -17,6 +17,10 @@ Revision history for Net-Async-Kubernetes
    instead of the raw bytes Kubernetes::REST specifies and the streaming
    mode delivers; every response body is now left undecoded by charset, a
    `Content-Encoding` is still resolved (k75).
+ - Fix cp_to_pod / cp_from_pod reporting success when the connection closed
+   without a status frame, which left a truncated file as "done". Success now
+   needs the `Success` status on channel 3, a missing status fails the Future,
+   and cp_from_pod also fails on a failing print/close of the local file (k76).
 
 0.009     2026-10-01 03:40:55Z
  - Require IO::K8s 1.109: string-map fields (labels, annotations, ConfigMap

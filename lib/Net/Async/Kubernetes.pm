@@ -2218,6 +2218,9 @@ sub cp_to_pod {
             return if $done->is_ready;
             if ($status_payload =~ /"status"\s*:\s*"Failure"/i) {
                 $done->fail("cp_to_pod failed: $status_payload");
+            } elsif ($status_payload !~ /"status"\s*:\s*"Success"/i) {
+                $done->fail("cp_to_pod failed: connection closed without a Success status, "
+                    . "the transfer may be incomplete");
             } else {
                 $done->done({
                     local   => $local,
@@ -2259,6 +2262,11 @@ for very large files.
 
 Returns a L<Future> resolving to a hashref containing C<local>, C<remote>,
 C<bytes>, C<stderr>, and C<status>.
+
+The copy only counts as done when the pod reported a C<Success> status on the
+status channel (3), which the C<v4.channel.k8s.io> protocol always sends at the
+end. A C<Failure> status, or a connection that closes without any status
+(dropped connection, restarted API server), fails the L<Future>.
 
 It takes C<name>, C<namespace>, C<container>, C<local>, C<remote> and
 C<chunk_size> (bytes per stdin write, default 65536). Any other option fails
@@ -2311,14 +2319,27 @@ sub cp_from_pod {
                 $done->fail("cp_from_pod failed: $status_payload");
                 return;
             }
+            if ($status_payload !~ /"status"\s*:\s*"Success"/i) {
+                $done->fail("cp_from_pod failed: connection closed without a Success status, "
+                    . "the transfer may be incomplete");
+                return;
+            }
 
             open my $fh, '>:raw', $local
                 or do {
                     $done->fail("cannot write local file '$local' for cp_from_pod: $!");
                     return;
                 };
-            print {$fh} $stdout;
-            close $fh;
+            unless (print {$fh} $stdout) {
+                my $err = $!;
+                close $fh;
+                $done->fail("cannot write local file '$local' for cp_from_pod: $err");
+                return;
+            }
+            unless (close $fh) {
+                $done->fail("cannot write local file '$local' for cp_from_pod: $!");
+                return;
+            }
 
             $done->done({
                 local   => $local,
@@ -2355,6 +2376,13 @@ for very large files.
 
 Returns a L<Future> resolving to a hashref containing C<local>, C<remote>,
 C<bytes>, C<stderr>, and C<status>.
+
+The copy only counts as done when the pod reported a C<Success> status on the
+status channel (3), which the C<v4.channel.k8s.io> protocol always sends at the
+end. A C<Failure> status, or a connection that closes without any status
+(dropped connection, restarted API server), fails the L<Future> and the local
+file is not written. A failing write of the local file (C<open>, C<print> or
+C<close>, e.g. a full disk) fails it as well.
 
 It takes C<name>, C<namespace>, C<container>, C<remote> and C<local>. Any
 other option -- C<chunk_size> belongs to L</cp_to_pod> only -- fails the
