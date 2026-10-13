@@ -1,0 +1,38 @@
+---
+class: standard
+completed: 2026-10-13T19:50:27Z
+created: 2026-10-06T19:45:14Z
+id: 79
+priority: medium
+started: 2026-10-13T19:50:27Z
+status: done
+tags:
+- bug
+- controller
+- review-2026-10-06
+title: 'Controller: ctx.attempt bleibt bei Retries auf 1, und stop() bricht den Retry-Timer
+  nicht ab'
+updated: 2026-10-13T19:50:27Z
+---
+
+Zwei Fehler im Retry-Pfad von lib/Net/Async/Kubernetes/Controller.pm, beide nachgestellt (Controller mit echtem Loop, `_enqueue_event` direkt gefuettert, kein Cluster noetig).
+
+1. `attempt` wird nur beim Eintreffen eines Events gesetzt (Zeile 171-179: `attempt => failures + 1`). Ein Retry (`_schedule_retry`, Zeile 275-297) stellt den Key mit demselben `ctx` wieder ein, `attempt` zaehlt also nicht hoch:
+
+```
+on_reconcile sieht:  ctx.attempt=1 | ctx.attempt=1 | ctx.attempt=1 | ctx.attempt=1
+retry_delay bekommt: attempt=1 | attempt=2 | attempt=3
+```
+
+Ein Handler, der nach N Versuchen aufgibt (`return if $ctx->{attempt} > 5`), gibt nie auf. t/12-controller.t ('controller retries failed reconciles', erwartet [1, 2]) besteht nur, weil der Mock-Watch nach `complete` neu verbindet und das ADDED erneut liefert, was den ctx neu baut; ohne neues Event - der Normalfall bei einem Retry - bleibt es bei 1. Die POD verspricht `attempt` im ctx und 'picks up at its next attempt number'.
+
+2. `stop` loescht nur die Referenz (`delete $entry->{retry_future}`, Zeile 113), bricht den Timer aber nicht ab; die POD sagt 'any retry timer is cancelled'. Der Timer feuert weiter, `$enqueue` prueft nur das aktuelle `stopped`. Nach stop + start innerhalb der Wartezeit wird der Key mit dem ctx von vor dem Stop eingereiht und abgeglichen, auch wenn das Objekt inzwischen weg ist und kein neues Event kam:
+
+```
+nach stop+start, kein neues Event => reconciled: [attempt 1 obj=OLD | attempt 1 obj=OLD]
+```
+
+Fertig, wenn: `attempt` beim Einreihen eines Retries aus `failures + 1` neu gesetzt wird, `stop` die Retry-Futures mit `->cancel` beendet, und t/18-controller-lifecycle.t beides ohne nachgeliefertes Event prueft (attempts [1, 2, 3]; kein Reconcile nach stop/start ohne Event).
+
+---
+Fleet review 2026-10-06 · kind: bug · confidence: verified
