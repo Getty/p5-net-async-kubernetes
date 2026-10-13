@@ -1874,6 +1874,10 @@ With C<on_line>, opens a streaming request and invokes the callback once per
 line with L<Kubernetes::REST::LogEvent> objects. The returned L<Future>
 resolves when the stream ends.
 
+The log is returned as raw bytes in both modes, as L<Kubernetes::REST> does;
+decode it yourself (C<Encode::decode('UTF-8', $text)>) when you need
+characters.
+
 Besides C<name>, C<namespace> and C<on_line> it takes the options
 C<container>, C<follow>, C<tailLines>, C<sinceSeconds>, C<sinceTime>,
 C<timestamps>, C<previous> and C<limitBytes>, sent as query parameters. Any
@@ -2480,7 +2484,7 @@ sub _do_request {
         my ($response) = @_;
         return Future->done(Kubernetes::REST::HTTPResponse->new(
             status  => $response->code,
-            content => $response->decoded_content // $response->content // '',
+            content => $response->decoded_content(charset => 'none') // $response->content // '',
         ));
     });
 }
