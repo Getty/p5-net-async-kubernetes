@@ -1,6 +1,11 @@
 Revision history for Net-Async-Kubernetes
 
 {{$NEXT}}
+ - Fix Watcher replaying history on reconnect: a watch started without a
+   resourceVersion kept the one of its last initial ADDED event, so a quiet
+   namespace's reconnect replayed everything since. The watch now sends
+   `allowWatchBookmarks=true` and takes the resourceVersion of BOOKMARK
+   events, which are not passed to any callback (k73).
  - Fix Controller retries: `$ctx->{attempt}` now counts up (1, 2, 3, ...) when
    a failed reconcile is retried without a new event, instead of staying at 1,
    and `stop` now cancels pending retry timers as documented, so a quick
