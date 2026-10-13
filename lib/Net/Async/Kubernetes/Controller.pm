@@ -571,7 +571,27 @@ was retrying picks up at its next attempt number rather than at attempt 1.
 Registers a watched resource and returns the watcher instance once started.
 An odd list of parameters croaks, as C<Invalid arguments to
 watch_resource()>, before anything is registered. Repeated events for the
-same reconcile key are coalesced into a single queued entry. A key's entry is
+same reconcile key are coalesced into a single queued entry.
+
+The default reconcile key is C<namespace/name> (just C<name> for a
+cluster-scoped object) and does B<not> include the resource. Objects of
+different watched resources that share a namespace and name, for example
+C<ConfigMap default/web> and C<Service default/web>, therefore fall onto the
+same key and coalesce into one reconcile; the context then carries only the
+last event (C<resource>, C<event_type> and C<object>), and the earlier object is
+not reconciled on its own. That is what you want when a secondary resource maps
+onto the key of its primary one and the reconcile re-reads the state it needs.
+To reconcile each resource separately, set C<key_for>, which is called as
+C<< $key_for->($object, $spec) >> with C<< $spec->{resource} >> naming the
+watched resource, and include the resource in the key:
+
+    key_for => sub {
+        my ($object, $spec) = @_;
+        return $spec->{resource}.':'.$object->metadata->namespace.'/'
+            .$object->metadata->name;
+    },
+
+A key's entry is
 dropped once it reconciles cleanly, so the queue does not grow with the
 number of objects seen; a key that is still queued, dirty or retrying keeps
 its entry, and with it its C<attempt> count.

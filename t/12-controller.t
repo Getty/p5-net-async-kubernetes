@@ -313,4 +313,66 @@ subtest 'controller patches status subresource' => sub {
     like($req->{content}, qr/"status"/, 'request contains status payload');
 };
 
+subtest 'same namespace/name across resources shares one queue key unless key_for is set' => sub {
+    # Documents the contract of the default key (k80): namespace/name without
+    # the resource, so ConfigMap default/web and Service default/web coalesce
+    # into one reconcile whose ctx carries only the later event.
+    my $run = sub {
+        my (%key_for) = @_;
+        my $kube = make_kube();
+        MockTransport::mock_watch_events('/api/v1/namespaces/default/configmaps', []);
+        MockTransport::mock_watch_events('/api/v1/namespaces/default/services', []);
+
+        my @reconciled;
+        my $controller;
+        $controller = Net::Async::Kubernetes::Controller->new(
+            kube => $kube,
+            on_reconcile => sub {
+                my ($ctx) = @_;
+                push @reconciled, {
+                    resource   => $ctx->{resource},
+                    event_type => $ctx->{event_type},
+                    kind       => $ctx->{object}->kind,
+                    key        => $ctx->{key},
+                };
+                return;
+            },
+        );
+        $controller->watch_resource($_, namespace => 'default', %key_for)
+            for qw(ConfigMap Service);
+        $loop->add($controller);
+
+        my ($cm_spec, $svc_spec) = @{ $controller->{watch_specs} };
+        my $meta = { name => 'web', namespace => 'default' };
+        $controller->_enqueue_event($cm_spec, 'ADDED',
+            $kube->new_object(ConfigMap => { metadata => $meta }));
+        $controller->_enqueue_event($svc_spec, 'MODIFIED',
+            $kube->new_object(Service => { metadata => $meta }));
+
+        $loop->watch_time(after => 0.5, code => sub { $loop->stop });
+        $loop->run;
+        $controller->stop;
+        $loop->remove($controller);
+        return \@reconciled;
+    };
+
+    my $merged = $run->();
+    is(scalar @$merged, 1, 'without key_for: one reconcile for both resources');
+    is_deeply($merged->[0], {
+        resource => 'Service', event_type => 'MODIFIED',
+        kind => 'Service', key => 'default/web',
+    }, 'without key_for: ctx carries only the last event (the ConfigMap is not reconciled)');
+
+    my $split = $run->(key_for => sub {
+        my ($object, $spec) = @_;
+        return $spec->{resource}.':'.$object->metadata->namespace.'/'.$object->metadata->name;
+    });
+    is(scalar @$split, 2, 'with key_for including the resource: two reconciles');
+    is_deeply(
+        [ sort map { $_->{key}.'|'.$_->{kind} } @$split ],
+        [ 'ConfigMap:default/web|ConfigMap', 'Service:default/web|Service' ],
+        'with key_for: each resource reconciled under its own key',
+    );
+};
+
 done_testing;
