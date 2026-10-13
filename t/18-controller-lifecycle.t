@@ -341,4 +341,57 @@ subtest 'stop() leaves no watcher attached to the client' => sub {
     $loop->remove($kube);
 };
 
+subtest 'ctx attempt counts up across retries without a new event' => sub {
+    my $kube = make_kube();
+    $loop->add($kube);
+
+    my @attempts;
+    my $controller = $kube->controller(
+        retry_delay  => 0,
+        on_reconcile => sub {
+            push @attempts, $_[0]{attempt};
+            if (@attempts < 3) { return Future->fail('boom') }
+            $loop->later(sub { $loop->stop });
+            return;
+        },
+    );
+    $controller->_enqueue_event({ resource => 'Pod' }, 'ADDED',
+        $kube->new_object(Pod => metadata => { name => 'a', namespace => 'default' }));
+
+    my $guard = $loop->watch_time(after => 5, code => sub { $loop->stop });
+    $loop->run;
+    $loop->unwatch_time($guard);
+
+    is_deeply(\@attempts, [1, 2, 3], 'attempt follows the failure count');
+    $loop->remove($kube);
+};
+
+subtest 'stop cancels a pending retry timer' => sub {
+    my $kube = make_kube();
+    $loop->add($kube);
+
+    my $runs = 0;
+    my $controller = $kube->controller(
+        retry_delay  => 0.2,
+        on_reconcile => sub { $runs++; return Future->fail('boom') },
+    );
+    $controller->{started} = 1;
+    $controller->_enqueue_event({ resource => 'Pod' }, 'ADDED',
+        $kube->new_object(Pod => metadata => { name => 'a', namespace => 'default' }));
+
+    my $done = $loop->new_future;
+    $loop->delay_future(after => 0.05)->on_done(sub {
+        is($runs, 1, 'first reconcile ran and failed');
+        $controller->stop;
+        $controller->{stopped} = 0;    # restart without a re-listed event
+        $controller->{started} = 1;
+        $done->done;
+    });
+    $loop->await($done);
+    $loop->await($loop->delay_future(after => 0.4));
+
+    is($runs, 1, 'the cancelled retry did not reconcile after stop/start');
+    $loop->remove($kube);
+};
+
 done_testing;

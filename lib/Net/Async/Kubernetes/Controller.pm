@@ -110,7 +110,12 @@ sub stop {
     # counts.
     $self->{queue} = [];
     for my $entry (values %{ $self->{entries} || {} }) {
-        delete $entry->{retry_future};
+        # Cancel, not just forget: a timer left running would re-queue the
+        # pre-stop ctx after a quick restart, reconciling an object that may
+        # be gone and for which no event arrived.
+        if (my $retry = delete $entry->{retry_future}) {
+            $retry->cancel;
+        }
         $entry->{queued} = 0;
         $entry->{dirty} = 0;
     }
@@ -283,6 +288,14 @@ sub _schedule_retry {
         return if $self->{stopped};
         delete $entry->{retry_future};
         return if $entry->{active} || $entry->{queued};
+        # The retry reuses the ctx of the failed run, so the attempt number
+        # has to move on here; only a fresh event rebuilds it otherwise.
+        if (my $old = $entry->{ctx}) {
+            my $ctx = { %$old, attempt => ($entry->{failures} // 0) + 1 };
+            weaken($ctx->{kube});
+            weaken($ctx->{controller});
+            $entry->{ctx} = $ctx;
+        }
         $entry->{queued} = 1;
         push @{ $self->{queue} }, $key;
         $self->_schedule_drain;
