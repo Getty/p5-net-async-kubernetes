@@ -1,0 +1,29 @@
+---
+class: standard
+completed: 2026-10-13T20:28:19Z
+created: 2026-10-06T19:45:08Z
+id: 78
+priority: low
+started: 2026-10-13T20:16:31Z
+status: done
+tags:
+- bug
+- watcher
+- review-2026-10-06
+title: 'Watcher: HTTP-Status 410 auf dem Watch-Request behaelt die abgelaufene resourceVersion
+  und versucht es endlos damit'
+updated: 2026-10-13T20:28:19Z
+---
+
+410 Gone wird nur als ERROR-Event im Stream behandelt: dort wird `_resource_version` geloescht und sofort neu verbunden (lib/Net/Async/Kubernetes/Watcher.pm:431-436). Beantwortet der Server den Watch-Request selbst mit HTTP 410, laeuft das in den allgemeinen Zweig `status >= 400` (Zeile 459-465) -> `_watch_failed`: die resourceVersion bleibt stehen, der Watcher wiederholt denselben Request mit Backoff bis 30 s und erholt sich nie (bzw. gibt bei gesetztem `max_retries` auf). client-go behandelt beide Formen gleich (`IsResourceExpired || IsGone` auf den Fehler von `Watch()` wie auf das Event).
+
+kube-apiserver mit Watch-Cache liefert das abgelaufene rv als ERROR-Event; die HTTP-Form kommt von aggregierten API-Servern, Proxys und aelteren bzw. Cache-losen Pfaden. Deshalb nur 'plausible' und niedrig priorisiert; t/08, t/41 decken ausschliesslich die Event-Form ab.
+
+Fertig, wenn: ein HTTP 410 auf dem Watch-Request die resourceVersion loescht und wie die Event-Form ohne Fehlermeldung neu startet (zusammen mit k73 entscheiden, was 'neu starten' heisst), mit einem Mock-Test.
+
+---
+Fleet review 2026-10-06 · kind: bug · confidence: plausible
+
+Umgesetzt: HTTP 410 auf Watch-Request mit gesetzter rv löscht rv und startet ohne Meldung neu; ohne rv -> Failure-Pfad/Backoff (kein enger Loop). t/48 rot gegen main. Mock-Suite grün, nicht live.
+
+Done; eigener Commit, siehe Notiz
