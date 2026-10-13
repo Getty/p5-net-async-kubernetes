@@ -6,6 +6,9 @@ Revision history for Net-Async-Kubernetes
    namespace's reconnect replayed everything since. The watch now sends
    `allowWatchBookmarks=true` and takes the resourceVersion of BOOKMARK
    events, which are not passed to any callback (k73).
+ - Fix Watcher against an HTTP 410 on the watch request itself: it kept the
+   expired resourceVersion and retried it forever. It now drops it and
+   restarts like for the 410 ERROR event (k78).
  - Fix Controller retries: `$ctx->{attempt}` now counts up (1, 2, 3, ...) when
    a failed reconcile is retried without a new event, instead of staying at 1,
    and `stop` now cancels pending retry timers as documented, so a quick

@@ -474,6 +474,17 @@ sub _start_watch {
         # A rejected request (401, 403, 5xx) resolves like any response. It
         # is a failed attempt, not a watch cycle that ran its course.
         if ($response->status >= 400) {
+            # 410 Gone on the request itself (aggregated API servers,
+            # proxies) is the same expired resourceVersion as the ERROR
+            # event: forget it and start over at once, silently (k78). Only
+            # when there was a version to forget: a 410 to a request without
+            # one is a failed attempt like any other and meets the backoff
+            # instead of a tight loop. The failure count is kept - this
+            # restart is no success.
+            if ($response->status == 410 && defined $weak_self->{_resource_version}) {
+                $weak_self->{_resource_version} = undef;
+                return $weak_self->_start_watch;
+            }
             my $cause = eval {
                 $rest->check_response($response, 'watch ' . $weak_self->resource);
                 1;
@@ -712,7 +723,10 @@ C<resourceVersion> from resuming at the version of the last initial C<ADDED>
 event, which would replay history. A server that sends no bookmark after the
 initial events (older ones) still leaves that window open.
 
-=item * Handles 410 Gone by clearing the C<resourceVersion> and restarting
+=item * Handles 410 Gone, as an C<ERROR> event on the stream or as the HTTP
+status of the watch request, by clearing the C<resourceVersion> and restarting
+at once. A request answered 410 although it carried no C<resourceVersion> is
+a failed attempt like any other, with backoff.
 
 =item * Retries a failed watch attempt -- a transport error, a rejection
 such as C<401> or C<403>, or a stream that closes at once without an event
