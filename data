@@ -1,0 +1,33 @@
+---
+class: standard
+completed: 2026-10-13T20:28:12Z
+created: 2026-10-06T19:44:57Z
+id: 76
+priority: medium
+started: 2026-10-13T20:19:08Z
+status: done
+tags:
+- bug
+- exec
+- cp
+- review-2026-10-06
+title: cp_to_pod / cp_from_pod melden Erfolg, wenn die Verbindung ohne Status-Frame
+  endet
+updated: 2026-10-13T20:28:12Z
+---
+
+Beide Methoden werten in `on_close` nur aus, ob der Status-Kanal `"status":"Failure"` enthaelt (lib/Net/Async/Kubernetes.pm:2213-2226 und 2304-2326); alles andere gilt als Erfolg. `on_close` feuert aber auch ueber `on_closed`, wenn der Websocket ohne Close-Frame und ohne Status wegbricht (`_do_duplex_request`, Zeile 2610-2612) - z. B. Verbindungsabbruch, API-Server- oder Kubelet-Neustart mitten in der Uebertragung. Dann ist `$status_payload` leer und
+
+- `cp_from_pod` schreibt die bis dahin empfangenen Bytes nach `local` und loest mit `bytes => length($stdout)` auf: eine abgeschnittene Datei als Erfolg;
+- `cp_to_pod` loest mit `bytes => $size` auf, obwohl `head -c` im Pod evtl. nur einen Teil geschrieben hat.
+
+Das v4/v5-Channel-Protokoll schickt am Ende immer einen Status auf Kanal 3 (`{"status":"Success"}`), ein fehlender Status ist also ein Fehlersignal. Zusaetzlich prueft `cp_from_pod` `print`/`close` auf die lokale Datei nicht (Zeile 2316-2317, volle Platte). Nicht gegen einen Cluster nachgestellt; t/16-mock-cp.t deckt nur Success- und Failure-Status ab.
+
+Fertig, wenn: Erfolg nur bei empfangenem Success-Status gemeldet wird (fehlender Status -> failed Future mit klarer Meldung), Schreibfehler der lokalen Datei den Future scheitern lassen, und t/16 einen Fall 'Verbindung schliesst ohne Status' hat.
+
+---
+Fleet review 2026-10-06 · kind: bug · confidence: plausible
+
+Umgesetzt: Erfolg nur bei Success-Status auf Kanal 3, sonst failed Future 'connection closed without a Success status, the transfer may be incomplete'; cp_from_pod schreibt dann keine Teildaten; print/close-Fehler der lokalen Datei scheitern den Future. t/16: 3 von 7 Subtests rot gegen altes lib; die zwei Erfolgs-Subtests mussten einen Success-Status liefern (hingen am alten 'kein Status = Erfolg'). cp_* nutzen immer v4.channel.k8s.io (kein subprotocol-Arg), kein legitimer Fall ohne Status. Mock-Suite 51 Dateien/375 Tests gruen, nicht live; ob echte API bei cat/head -c immer Success sendet: auf minikube bestaetigen.
+
+Done, eigener Commit
