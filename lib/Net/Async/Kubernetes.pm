@@ -1957,13 +1957,38 @@ Returns a L<Future> that resolves to the duplex session object returned by the
 transport backend. The default transport returns a
 L<Net::Async::Kubernetes::PortForwardSession> object.
 
-The session helper supports C<write_channel>, C<write_stdin>, C<resize>, and
-C<close>.
+The session helper supports C<write_channel> and C<close>. C<write_stdin> and
+C<resize> belong to exec/attach and mean nothing here (see L</Channels>).
 
 C<on_open> receives the created session object.
 
 C<on_frame> receives C<($channel, $payload)> where the first byte of each
 binary websocket frame is decoded as Kubernetes channel id.
+
+=head3 Channels
+
+A port-forward session does not use the exec/attach channel layout of
+L</exec>. For each requested port, counted from 0 in the order of C<ports>,
+the Kubelet opens two channels: the I<data> channel C<2 * $i> and the
+I<error> channel C<2 * $i + 1>. With C<< ports =E<gt> [8080, 8443] >>:
+
+    channel 0   data    of port 8080
+    channel 1   error   of port 8080
+    channel 2   data    of port 8443
+    channel 3   error   of port 8443
+
+Channel 3 is therefore the error channel of the second port, not a status
+stream. Bytes for the forwarded TCP connection are sent with
+C<< $session->write_channel(2 * $i, $bytes) >> and arrive in C<on_frame> on
+that same channel.
+
+The first frame the server sends on every channel, data and error alike, is
+not payload: it is the port number as two bytes, little-endian
+(C<unpack('v', $payload)>). The library hands raw frames through and does not
+strip it, so the first C<on_frame> call per channel carries those two bytes
+and has to be skipped by the caller.
+
+=head3 Options
 
 It takes C<name>, C<namespace>, C<ports> (one port or an arrayref of them,
 required), C<subprotocol> (default C<v4.channel.k8s.io>) and the callbacks

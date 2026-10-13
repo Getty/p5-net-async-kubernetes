@@ -52,11 +52,24 @@ byte (C<chr($channel) . $payload>). C<$channel> is required and must be an
 integer between 0 and 255; C<$payload> defaults to the empty string.
 
 C<write_channel> itself does not know what any channel number means, it only
-frames whatever it is given, but the Kubernetes exec/attach/port-forward
-sub-protocol fixes their meaning: 0 is stdin, 1 is stdout, 2 is stderr, 3
+frames whatever it is given; the meaning comes from the Kubernetes
+sub-protocol of the session.
+
+For an exec or attach session, 0 is stdin, 1 is stdout, 2 is stderr, 3
 carries an error/status JSON document, and 4 carries TTY resize events (see
-L</resize>). C<on_frame>, passed to L<Net::Async::Kubernetes/exec> and
-friends, decodes incoming frames the same way in reverse.
+L</resize>).
+
+A port-forward session has a different layout: each requested port C<$i>
+(counted from 0, in the order of C<ports>) owns two channels, C<2 * $i> for
+data and C<2 * $i + 1> for errors, so with two ports channel 3 is the error
+channel of the second one. Data for port C<$i> goes out with
+C<< write_channel(2 * $i, $bytes) >>. The first frame the server sends on each
+of these channels is the port number as two little-endian bytes, not payload;
+it reaches C<on_frame> unstripped.
+
+C<on_frame>, passed to L<Net::Async::Kubernetes/exec> and friends, splits
+incoming frames into C<($channel, $payload)> the same way in reverse; it
+does not interpret the channel number.
 
 Returns the L<Future> from the underlying C<ws_client>'s
 C<send_binary_frame> - an L<IO::Async::Stream> write-future that completes
@@ -76,7 +89,9 @@ sub write_stdin {
     $session->write_stdin("id\n");
 
 Shortcut for C<< $session->write_channel(0, $payload) >> - writes to channel
-0, the stdin stream of an exec or attach session's remote process.
+0, the stdin stream of an exec or attach session's remote process. On a
+port-forward session channel 0 is the data channel of the first port, not
+stdin; use L</write_channel> there.
 
 Returns the L<Future> from the underlying C<write_channel> call.
 
@@ -115,7 +130,8 @@ sub resize {
 Send a TTY resize event on channel 4, as a C<{"Width":$width,"Height":$height}>
 JSON payload. C<width> and C<height> (or their C<cols>/C<rows> aliases) are
 required and must be positive integers. Only meaningful for a session opened
-with C<tty =E<gt> 1>.
+with C<tty =E<gt> 1>. Not for port-forward sessions, where channel 4 is the
+data channel of the third port.
 
 Returns the L<Future> from the underlying C<write_channel> call.
 
@@ -181,10 +197,13 @@ __END__
 A duplex session handle for the Kubernetes exec/attach/port-forward
 websocket sub-protocol (C<v4.channel.k8s.io> by default). Every frame on the
 wire carries a channel number as its first byte, identifying which logical
-stream - stdin, stdout, stderr, error/status, or TTY resize - the rest of the
-frame belongs to. C<write_channel> is the primitive that builds such a
-frame; C<write_stdin> and C<resize> are convenience wrappers over channels 0
-and 4 respectively.
+stream the rest of the frame belongs to. For exec and attach these are stdin,
+stdout, stderr, error/status and TTY resize (channels 0 to 4); for
+port-forward they are a data and an error channel per forwarded port
+(C<2 * $i> and C<2 * $i + 1>), each opened by a two-byte port-number frame.
+C<write_channel> is the primitive that builds such a frame; C<write_stdin>
+and C<resize> are convenience wrappers over channels 0 and 4 respectively,
+meaningful for exec and attach only.
 
 Callers do not normally construct this class themselves: it is what
 L<Net::Async::Kubernetes/port_forward>, L<Net::Async::Kubernetes/exec>, and
