@@ -1,0 +1,38 @@
+---
+class: standard
+completed: 2026-10-13T20:28:05Z
+created: 2026-10-06T19:44:51Z
+id: 75
+priority: medium
+started: 2026-10-13T20:19:00Z
+status: done
+tags:
+- bug
+- encoding
+- log
+- review-2026-10-06
+title: log() ohne on_line liefert dekodierte Zeichen statt Bytes; _do_request nutzt
+  decoded_content mit Charset-Dekodierung
+updated: 2026-10-13T20:28:05Z
+---
+
+`_do_request` (lib/Net/Async/Kubernetes.pm:2481-2484) baut die Antwort mit `content => $response->decoded_content // $response->content`. `decoded_content` ohne `charset => 'none'` dekodiert Text-Typen in Perl-Zeichen. Kubernetes::REST legt den Vertrag anders fest: Bodies sind Bytes (Role::IO 'Encoding contract', LWPIO nutzt `decoded_content(charset => 'none')`), und `log` sagt ausdruecklich 'Log output is returned as raw bytes in both modes'.
+
+Nachweis (HTTP::Message 7.04):
+
+```
+perl -MHTTP::Response -e 'for my $ct ("application/json","text/plain"){ my $r=HTTP::Response->new(200,"OK",["Content-Type",$ct],"{\"a\":\"\xc3\xa4\"}"); my $d=$r->decoded_content; printf "%s len=%d utf8=%d\n",$ct,length $d,utf8::is_utf8($d)?1:0 }'
+# application/json len=10 utf8=0
+# text/plain       len=9  utf8=1
+```
+
+JSON-Antworten bleiben also Bytes (deshalb faellt es in den CRUD-Tests nicht auf), aber der One-shot-Log (`text/plain`, Zeile 1841-1848) kommt als Zeichenkette zurueck, waehrend der Streaming-Zweig (`_do_streaming_request`) rohe Bytes liefert. Folgen: `print` gibt 'Wide character'-Warnungen, wer wie dokumentiert selbst `Encode::decode('UTF-8', $text)` aufruft, dekodiert doppelt bzw. stirbt bei Zeichen > 255, `length`/`limitBytes`-Vergleiche stimmen nicht, und derselbe Aufruf verhaelt sich sync (Kubernetes::REST) und async verschieden. Auch ein `text/plain`-Fehlerbody laeuft dekodiert in `check_response`, das noch einmal `Encode::decode` darauf anwendet.
+
+Fertig, wenn: `_do_request` `decoded_content(charset => 'none')` verwendet (Content-Encoding weiter aufloesen, Charset nicht), ein Mock-Test mit einem UTF-8-Log prueft, dass One-shot und Streaming dieselben Bytes liefern, und die POD von `log` den Bytes-Vertrag nennt.
+
+---
+Fleet review 2026-10-06 · kind: bug · confidence: verified
+
+Done, eigener Commit
+
+Umgesetzt (84e35ae): decoded_content(charset=>'none') in _do_request, POD von log nennt Bytes-Vertrag. t/49-log-bytes.t (Loopback-HTTP gegen echte Transportschicht, da MockTransport _do_request ersetzt) rot gegen altes lib: 4 von 8 Tests. Mock-Suite 51 Dateien/372 Tests gruen, nicht live. Hinweis: gilt fuer jeden Body, nicht nur log; text/plain-Fehlerbodies kommen jetzt als Bytes in check_response.
