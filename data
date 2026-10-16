@@ -1,0 +1,34 @@
+---
+class: standard
+completed: 2026-10-16T04:30:58Z
+created: 2026-10-06T19:45:20Z
+id: 80
+priority: low
+started: 2026-10-13T20:21:35Z
+status: done
+tags:
+- bug
+- controller
+- review-2026-10-06
+title: 'Controller: Queue-Key ohne Ressource - gleichnamige Objekte verschiedener
+  watch_resource ueberschreiben einander'
+updated: 2026-10-16T04:31:12Z
+---
+
+`_key_for` (lib/Net/Async/Kubernetes/Controller.pm:310-324) bildet den Key ohne `key_for` aus `namespace/name`, ohne die Ressource. `_enqueue_event` (Zeile 164-196) haelt je Key einen Eintrag und ersetzt dessen `ctx` bei jedem Event. Beobachtet ein Controller zwei Ressourcen, fallen `ConfigMap default/web` und `Service default/web` auf denselben Eintrag; das spaetere Event ueberschreibt das fruehere, bevor es abgeglichen wurde:
+
+```
+_enqueue_event(ConfigMap default/web ADDED); _enqueue_event(Service default/web ADDED)
+=> reconciled: [Service default/web ADDED]      # die ConfigMap wird nie abgeglichen
+```
+
+Fuer das controller-runtime-Muster (Nebenressourcen auf den Key der Hauptressource abbilden, im Reconcile den Zustand neu lesen) ist das gewollt. Der ctx traegt hier aber `resource`, `event_type` und `object` genau eines Events, und die POD von `watch_resource` sagt nur 'Repeated events for the same reconcile key are coalesced' - dass Keys ueber Ressourcen hinweg geteilt werden, steht nirgends. Ein Handler, der mit `$ctx->{object}` arbeitet, verliert Objekte.
+
+Fertig, wenn: entweder der Default-Key die Ressource enthaelt (`Kind:namespace/name`; wer zusammenlegen will, nimmt `key_for`), oder die POD das Zusammenfallen ausdruecklich als Vertrag beschreibt und auf `key_for` verweist - mit einem Test fuer zwei Ressourcen gleichen Namens.
+
+---
+Fleet review 2026-10-06 · kind: bug · confidence: verified
+
+Gebaut (46bec49), nicht-brechende Variante: POD beschreibt das Zusammenfallen als Vertrag + key_for-Verweis, t/12 pinnt (a) ohne key_for ein Reconcile mit letztem Event, (b) mit key_for zwei. Test ist gegen altes lib NICHT rot (kein Verhaltenswechsel). EMPFEHLUNG an Maintainer: Default-Key um die Ressource erweitern (Kind:ns/name), key_for fuer Zusammenlegen - stilles Verlieren von $ctx->{object} ist die schlimmere Falle; Aenderung ist klein (_key_for + Test (a) umdrehen), aber Verhaltensaenderung der oeffentlichen API, daher nicht entschieden. Mock-Suite 51 Dateien/376 Tests gruen, nicht live.
+
+2026-10-16 Getty: Default-Key mit Ressource. Gebaut in 6bcf27f auf main (kein Push): _key_for gibt Resource:ns/name bzw. Resource:name zurück, POD und Changes umgestellt; t/12 (k80-Subtest umgedreht) und t/18 auf neue Keys, gegen altes lib rot. Suite 51/376 grün. Kein Nutzer im Hub (OCP nutzt den Controller nicht).
