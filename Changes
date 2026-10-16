@@ -16,10 +16,13 @@ Revision history for Net-Async-Kubernetes
    a failed reconcile is retried without a new event, instead of staying at 1,
    and `stop` now cancels pending retry timers as documented, so a quick
    stop/start no longer reconciles a stale object (k79).
- - Document that the Controller's default reconcile key is namespace/name
-   without the resource, so same-named objects of different watched resources
-   coalesce into one reconcile carrying only the last event, and that
-   `key_for` separates them; pinned by a test (k80).
+ - The Controller's default reconcile key now carries the resource:
+   `Resource:namespace/name` (`Resource:name` cluster-scoped), e.g.
+   `Pod:default/web`. Same-named objects of different watched resources
+   (ConfigMap default/web, Service default/web) used to fall onto one key and
+   coalesce into one reconcile carrying only the last event, so the earlier
+   object was never reconciled. To coalesce on purpose, return a shared key
+   from `key_for` (k80).
  - Fix one-shot `log` returning decoded characters for a `text/plain` log
    instead of the raw bytes Kubernetes::REST specifies and the streaming
    mode delivers; every response body is now left undecoded by charset, a

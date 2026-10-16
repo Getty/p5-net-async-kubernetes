@@ -331,9 +331,10 @@ sub _key_for {
     my $name = $meta ? $meta->name : undef;
     my $namespace = $meta ? $meta->namespace : undef;
 
-    return defined($namespace) && length($namespace)
+    my $id = defined($namespace) && length($namespace)
         ? "$namespace/$name"
         : $name;
+    return "$spec->{resource}:$id";
 }
 
 sub get_object {
@@ -573,23 +574,26 @@ An odd list of parameters croaks, as C<Invalid arguments to
 watch_resource()>, before anything is registered. Repeated events for the
 same reconcile key are coalesced into a single queued entry.
 
-The default reconcile key is C<namespace/name> (just C<name> for a
-cluster-scoped object) and does B<not> include the resource. Objects of
-different watched resources that share a namespace and name, for example
-C<ConfigMap default/web> and C<Service default/web>, therefore fall onto the
-same key and coalesce into one reconcile; the context then carries only the
-last event (C<resource>, C<event_type> and C<object>), and the earlier object is
-not reconciled on its own. That is what you want when a secondary resource maps
-onto the key of its primary one and the reconcile re-reads the state it needs.
-To reconcile each resource separately, set C<key_for>, which is called as
+The default reconcile key is C<Resource:namespace/name>
+(C<Resource:name> for a cluster-scoped object), with C<Resource> the name the
+resource was registered under, e.g. C<Pod:default/web>. Objects of different
+watched resources that share a namespace and name, such as
+C<ConfigMap default/web> and C<Service default/web>, are therefore reconciled
+on their own, each with its own event in the context.
+
+To coalesce them instead -- the controller-runtime pattern of mapping a
+secondary resource onto the key of its primary one, with a reconcile that
+re-reads the state it needs -- set C<key_for>, which is called as
 C<< $key_for->($object, $spec) >> with C<< $spec->{resource} >> naming the
-watched resource, and include the resource in the key:
+watched resource, and return the shared key:
 
     key_for => sub {
         my ($object, $spec) = @_;
-        return $spec->{resource}.':'.$object->metadata->namespace.'/'
-            .$object->metadata->name;
+        return $object->metadata->namespace.'/'.$object->metadata->name;
     },
+
+The context of a coalesced key carries only the last event (C<resource>,
+C<event_type> and C<object>).
 
 A key's entry is
 dropped once it reconciles cleanly, so the queue does not grow with the

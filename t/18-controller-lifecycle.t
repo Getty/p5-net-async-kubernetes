@@ -100,7 +100,7 @@ subtest 'a failed reconcile keeps its entry and its retry state' => sub {
 
     is_deeply(\@attempts, [1], 'reconcile ran once and failed');
 
-    my $entry = $controller->{entries}{'default/pod-keep'};
+    my $entry = $controller->{entries}{'Pod:default/pod-keep'};
     ok($entry, 'entry for the failed key survives');
     is($entry->{failures}, 1, 'failure count kept, so the next attempt is 2');
     ok($entry->{ctx}, 'ctx kept with the entry for the retry');
@@ -183,7 +183,7 @@ subtest 'a key queued when the controller stops reconciles after a restart' => s
         $controller->stop;
 
         is(scalar @{ $controller->{queue} }, 0, 'stop leaves no key in the queue');
-        ok(!$controller->{entries}{'default/pod-restart'}{queued},
+        ok(!$controller->{entries}{'Pod:default/pod-restart'}{queued},
             'stop clears the queued flag together with the queue');
 
         $loop->later(sub { $controller->start });
@@ -197,7 +197,7 @@ subtest 'a key queued when the controller stops reconciles after a restart' => s
     # The restarted watch re-lists and delivers the object again. A key left
     # flagged queued makes that event return early without scheduling a drain,
     # so it sits in the queue until some unrelated key drags it out.
-    is_deeply(\@reconciled, ['default/pod-restart'],
+    is_deeply(\@reconciled, ['Pod:default/pod-restart'],
         'the key reconciles again after the restart');
 
     $loop->remove($kube);
@@ -226,14 +226,14 @@ subtest 'a queued key without an entry does not abandon the drain' => sub {
     # at most once in the queue. It is put here on purpose - whoever loosens
     # those conditions has to find the drain skipping the stale key rather than
     # dropping the rest of the queue with it.
-    push @{ $controller->{queue} }, 'default/ghost';
+    push @{ $controller->{queue} }, 'Pod:default/ghost';
 
     my $guard = $loop->watch_time(after => 2, code => sub { $loop->stop });
     $loop->run;
     $loop->unwatch_time($guard);
     $controller->stop;
 
-    is_deeply(\@reconciled, ['default/pod-behind'],
+    is_deeply(\@reconciled, ['Pod:default/pod-behind'],
         'the key queued behind the stale one still reconciles');
     is(scalar @{ $controller->{queue} }, 0, 'the stale key left the queue');
 
@@ -247,7 +247,7 @@ subtest 'an event arriving during a reconcile does not requeue past stop()' => s
     MockTransport::mock_watch_events('/api/v1/namespaces/default/pods',
         [ pod_added('pod-dirty', 700) ]);
 
-    my $key = 'default/pod-dirty';
+    my $key = 'Pod:default/pod-dirty';
     my @reconciled;
     my ($controller, $watcher, $in_flight);
 
