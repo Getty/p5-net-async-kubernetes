@@ -1,0 +1,36 @@
+---
+block_reason: Live-Bestaetigung des Protokolls + Entscheidung ueber neue API (Praeambel-Option,
+  local_port); POD ist committet
+blocked: true
+claimed_at: 2026-10-16T05:24:01Z
+claimed_by: k77
+class: standard
+created: 2026-10-06T19:45:03Z
+id: 77
+priority: medium
+started: 2026-10-13T20:21:36Z
+status: review
+tags:
+- docs
+- port-forward
+- websocket
+- review-2026-10-06
+title: 'port_forward: Kanalbelegung ist als die von exec dokumentiert, Port-Praeambel
+  und Fehlerkanal fehlen, Datenpfad ungetestet'
+updated: 2026-10-16T05:24:01Z
+---
+
+`port_forward` reicht rohe Frames als `($channel, $payload)` durch (lib/Net/Async/Kubernetes.pm:1885-1972). Die POD der Session erklaert die Kanaele fuer 'exec/attach/port-forward' gemeinsam als 0 = stdin, 1 = stdout, 2 = stderr, 3 = Status, 4 = Resize (lib/Net/Async/Kubernetes/PortForwardSession.pm:54-59, POD zu `write_channel`), und eg/live_features.pl liest beim Port-Forward Kanal 3 als Status (Zeile 158-161).
+
+Das Websocket-Port-Forward-Protokoll `v4.channel.k8s.io` des Kubelets ist anders belegt: je angefragtem Port zwei Kanaele - Daten auf 2*i, Fehler auf 2*i+1 - und auf jedem Kanal schickt der Server als erstes einen Frame mit der Portnummer als 2 Byte little-endian. Wer nach der Doku einen lokalen TCP-Proxy baut, schreibt diese zwei Bytes in den Client-Socket und liest den Fehlerkanal des ersten Ports als 'stdout'; bei `ports => [8080, 8443]` ist Kanal 3 der Fehlerkanal des zweiten Ports, kein Status. `write_stdin`/`resize` ergeben auf einer Port-Forward-Session keinen Sinn.
+
+Kein Test und kein Beispiel schiebt Daten durch einen Forward (t/12-mock-port-forward.t prueft Aufbau und Framing, live_features oeffnet und schliesst nur). Protokollangaben aus dem Kubelet-Code, in diesem Durchgang nicht gegen einen Cluster gefahren - zuerst live bestaetigen.
+
+Fertig, wenn: die POD von `port_forward` und der Session die Belegung fuer Port-Forward getrennt beschreibt (Daten-/Fehlerkanal je Port, Praeambel), die Praeambel wahlweise von der Bibliothek abgestreift wird, das Live-Beispiel einen echten Request durch den Forward schickt, und ein Mock-Test die Zuordnung Kanal -> Port festhaelt. Naheliegende Erweiterung: ein lokaler Listener (`local_port`) wie bei kubectl.
+
+---
+Fleet review 2026-10-06 · kind: docs · confidence: plausible
+
+Gebaut (b7e8c0b): nur POD von port_forward + PortForwardSession (Kanalbelegung 2*i/2*i+1, 2-Byte-LE-Praeambel, write_stdin/resize nicht sinnvoll, Bibliothek streift nicht ab). Aus Kubelet-Protokoll + Code, NICHT live bestaetigt (Karte verlangt das zuerst). NICHT gebaut: wahlweises Abstreifen der Praeambel (neue oeffentliche Option), Mock-Test Kanal->Port (haengt an dieser API), Live-Beispiel mit echtem Request, lokaler Listener local_port. EMPFEHLUNG: erst auf minikube bestaetigen, dann Option strip_preamble (Default aus, kein Bruch) oder gleich Session-Methode pro Port; local_port als eigene Karte. Randbefund: eg/live_features.pl ~Zeile 160 liest Kanal 3 als Status, fragt aber nur einen Port an (Kanaele 0/1) -> Zweig laeuft nie, Ausgabe 'port_forward status' erscheint nie; Session wird in on_open sofort geschlossen. Mock-Suite 51/376 gruen, nicht live.
+
+Was: port_forward on_data($session,$port,$bytes)/on_port_error; Praeambel (2B LE, eigener Frame) wird abgestreift+geprueft, on_frame bleibt roh. Session write_port; write_stdin/resize croaken im Port-Modus. Neue Klasse PortForwardListener + $kube->port_forward_listen(ports=>{local=>remote}, host) mit port_for/stop, eine Session je TCP-Verbindung. eg/live_features.pl macht HTTP GET durch den Forward. Commit: ad8ad64. Tests: t/50, t/51, t/lib/FakeWebSocketClient.pm, t/13/44/45 angepasst; prove -lr -j2 t gruen 53/388, nur mock. Live zu pruefen: (1) Kubelet schickt Praeambel als eigenen 2-Byte-Frame als ersten je Kanal, auch auf dem Fehlerkanal; (2) Fehlerkanal-Inhalt/Zeitpunkt bei unerreichbarem Pod-Port und ob danach noch Daten kommen; (3) Verbindungsende: wer schliesst zuerst, Close-Code, kommen Antwortdaten vor dem Close noch an; kein Half-Close (TCP-Sendeseite zu beendet den ganzen Forward); (4) Mehrfach-Ports ports=>[a,b] Kanalzuordnung (Listener nutzt immer einen Port pro Session); (5) perl eg/live_features.pl --pod <nginx-pod> --port 80 liefert HTTP-Statuszeile.
