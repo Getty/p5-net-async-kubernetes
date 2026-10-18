@@ -1,6 +1,12 @@
 Revision history for Net-Async-Kubernetes
 
 {{$NEXT}}
+ - list takes limit, continue and resourceVersion (sent as query parameters,
+   as Kubernetes::REST's list does since its k74), and the IO::K8s::List it
+   resolves to carries the collection metadata (resourceVersion, continue,
+   remainingItemCount) through Kubernetes::REST's inflate_list. POD shows a
+   paging loop. Before, all three failed the Future as unknown arguments.
+   (Kubernetes::REST k74)
  - port_forward understands the Kubelet's channel layout (k77): data on
    channel 2*i and errors on 2*i+1 per requested port, each opened by a frame
    holding the port number (2 bytes little-endian). New callbacks

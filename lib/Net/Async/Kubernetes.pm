@@ -656,6 +656,20 @@ IO::K8s objects.
 
 C<labelSelector> and C<fieldSelector> are sent as query parameters, so
 filtering happens server-side rather than on the list that comes back.
+C<limit>, C<continue> and C<resourceVersion> are sent as query parameters too,
+as in L<Kubernetes::REST/list>. The list carries the collection's metadata
+(C<resourceVersion>, C<continue>, C<remainingItemCount>) in
+C<< $list->metadata >>, so a large collection can be paged and a watch can
+start from the version the list was read at:
+
+    my ($continue, @pods);
+    do {
+        my $page = $kube->list('Pod', namespace => 'default', limit => 500,
+            defined $continue ? (continue => $continue) : ())->get;
+        push @pods, @{ $page->items };
+        $continue = $page->metadata->continue;
+    } while (defined $continue && length $continue);
+
 Any other option -- a misspelt C<labelselector> would otherwise list every
 object -- fails the L<Future> before a request is sent, naming the options
 C<list> takes. So does an odd list of options, as C<Invalid arguments to
@@ -670,7 +684,7 @@ qualified C<'group/version/Kind'> name to pin a specific API version -- see
 L</expand_class>
 
 =item C<%args> - Optional parameters: C<namespace>, C<labelSelector>,
-C<fieldSelector>
+C<fieldSelector>, C<limit>, C<continue>, C<resourceVersion>
 
 =back
 
@@ -687,17 +701,18 @@ sub _list_request {
     return Future->fail("Invalid arguments to list()") if @args % 2;
     my %args = @args;
     my $unknown = $self->_unknown_argument_error('list', \%args,
-        qw( namespace labelSelector fieldSelector ));
+        qw( namespace labelSelector fieldSelector limit continue resourceVersion ));
     return Future->fail($unknown) if defined $unknown;
 
     my $rest = $self->_rest;
     my ($class, $error) = $self->_resolve_class($short_class);
     return Future->fail($error) unless defined $class;
 
-    # Selectors are query parameters; build_path only knows path segments and
-    # would drop them silently, turning a filtered list into a full one.
+    # Selectors and paging are query parameters; build_path only knows path
+    # segments and would drop them silently, turning a filtered list into a
+    # full one.
     my %params;
-    for my $selector (qw(labelSelector fieldSelector)) {
+    for my $selector (qw(labelSelector fieldSelector limit continue resourceVersion)) {
         my $value = delete $args{$selector};
         $params{$selector} = $value if defined $value;
     }
