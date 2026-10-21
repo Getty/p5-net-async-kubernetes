@@ -2,6 +2,10 @@ Revision history for Net-Async-Kubernetes
 
 {{$NEXT}}
 
+ - Forgotten requirements bumping: cpanfile now requires Kubernetes::REST 1.110
+   and IO::K8s 1.111, the versions released just before 0.010 (0.010 still
+   declared 1.109 for both).
+
 0.010     2026-10-21 18:31:25Z
  - list takes limit, continue and resourceVersion (sent as query parameters,
    as Kubernetes::REST's list does since its k74), and the IO::K8s::List it
