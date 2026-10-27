@@ -2828,6 +2828,9 @@ sub _do_duplex_request {
 
     $self->add_child($client);
 
+    # retain: the request stays alive until it is ready, so on_error runs
+    # and the client is detached even when the caller keeps no reference
+    # or drops it from inside on_error.
     return $client->connect(
         url => $ws_url,
         req => $ws_req,
@@ -2845,7 +2848,7 @@ sub _do_duplex_request {
         $notify_error->($error);
         $detach_client->();
         return Future->fail($error);
-    });
+    })->retain;
 }
 
 sub _build_websocket_url {

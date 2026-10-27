@@ -6,6 +6,10 @@ Revision history for Net-Async-Kubernetes
    the request itself fails with the transport error, and
    `t/51-port-forward-listen.t` passes there. A session that opens after its
    connection has ended is closed at once. (GitHub issue 3)
+ - port_forward, exec and attach keep their request alive until it is ready:
+   on_error receives a connect failure and the websocket client is detached
+   even when the caller keeps no reference to the returned future or drops it
+   from inside on_error, with Future and with Future::XS.
 
 0.011     2026-10-21 20:17:11Z
 
