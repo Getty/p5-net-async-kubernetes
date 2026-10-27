@@ -1,0 +1,27 @@
+---
+class: standard
+completed: 2026-10-27T03:00:30Z
+created: 2026-10-27T02:40:22Z
+id: 81
+priority: high
+started: 2026-10-27T03:00:30Z
+status: done
+tags:
+- bug
+- github
+title: t/51-port-forward-listen.t asserts on DEBUGGING perls and segfaults elsewhere
+  (GitHub issue 3)
+updated: 2026-10-27T03:00:38Z
+---
+
+Reported by andk on GitHub: https://github.com/Getty/p5-net-async-kubernetes/issues/3 — release 0.011, t/51-port-forward-listen.t always hits an assertion on DEBUGGING perls and a SEGV on non-DEBUGGING perls on some smokers (others pass). Reports: https://www.cpantesters.org/cpan/report/f62b7124-ce31-11f1-8c48-8bcb21a78610 and https://www.cpantesters.org/cpan/report/9b995e26-ce39-11f1-8fce-ab57a51d9339. Done: root cause found, test (or code) no longer crashes the interpreter, suite green.
+
+2026-10-27 02:54 Cause: Future::XS bug, not ours alone. In Future::XS (all releases up to 0.16, current) src/future.c S_invoke_callback holds the sequence future (cb->seq.f) only as a weak ref while the then/else code runs; Future::PP copies it into a strong lexical. If that code drops the last strong ref, the weak RV is undef afterwards and future_on_cancel(fseq, f2) -> get_future(undef) trips assert SvROK&&SvOBJECT at future.c:140 (DEBUGGING) or segfaults. Our trigger: PortForwardListener::_end, reached via on_error from inside _do_duplex_request's else block when the websocket connect fails (t/51 subtest 'failing session request'), deleted conn->{future} (the listener is the only owner of that else-future) and cancelled it in place. Smokers without Future::XS pass, hence the mixed reports. Minimal pure-Future repro (segfaults with Future::XS 0.16, fine with PP): my $f1 = Future->new; my %h; $h{f2} = $f1->else(sub { delete $h{f2}; Future->fail(@_) }); $f1->fail('boom'); — a one-line upstream fix (SV *fseq = sv_2mortal(newSVsv(cb->seq.f)) in S_invoke_callback) makes the repro and the old t/51 pass. Upstream (RT Future-XS / PEVANS) not yet reported; no fixed Future::XS exists, so no cpanfile pin possible.
+
+2026-10-27 02:54 Decision: cancel a pending session request on the next loop iteration ($loop->later, closure holds the future), the house rule for cancel paths (Watcher::stop does the same); fall back to in-place cancel without a loop. Consequence handled: a session whose handshake completes before the deferred cancel is closed in on_open (it was silently left open). Red proof: old lib + Future::PP -> new assertion red (request ends 'cancelled', not 'failed'); old lib + Future::XS 0.16 -> t/51 SIGSEGV after 4 subtests, exactly as in andk's reports; deferral without the on_open close -> new 'stop while pending' subtest red. Green: prove -lr t/ 54 files / 392 tests, mock mode, with Future::PP and with Future::XS 0.16 (isolated local::lib ~/.cache/nak-gh3/fxs).
+
+2026-10-27 02:54 Also found: _do_duplex_request calls the caller's on_error from inside the connect future's else block before that future fails; any port_forward/exec/attach caller that drops its only reference to the returned future in on_error hits the same Future::XS crash. Not changed here.
+
+2026-10-27 02:55 Commit 64ed78d380a21b83e5b373f23b0ae93ef68ecb1c on branch gh-issue-3 (worktree .claude/worktrees/gh-issue-3), based on main d21fb8a.
+
+2026-10-27 03:00 Merged on main: 64ed78d (listener defers cancel, closes late sessions) + da64f1b (_do_duplex_request retains its request; tests for PP and Future::XS). Suite 394 tests PASS with Future 0.52 PP and Future::XS 0.16.
