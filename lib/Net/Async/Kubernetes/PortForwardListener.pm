@@ -151,7 +151,11 @@ sub _accept {
         ports   => [$remote],
         on_open => sub {
             my ($session) = @_;
-            return if $conn->{closed};
+            # the connection ended while the session request was pending
+            if ($conn->{closed}) {
+                eval { $session->close(code => 1000); 1 };
+                return;
+            }
             $conn->{session} = $session;
             my $buffered = delete $conn->{buffer};
             $self->_from_tcp($conn, $buffered) if length $buffered;
@@ -202,7 +206,16 @@ sub _end {
     if ($session) {
         eval { $session->close(code => 1000); 1 };
     } elsif ($future && !$future->is_ready) {
-        $future->cancel;
+        # Cancelled on the next loop iteration, never in place: _end also
+        # runs inside the request's own callbacks (a failed connect reports
+        # through on_error before the request future fails), and the
+        # deferred closure keeps the request alive until those have unwound.
+        # Freeing a sequence future from its own callback crashes Future::XS.
+        if (my $loop = $self->{kube}->loop) {
+            $loop->later(sub { $future->cancel unless $future->is_ready });
+        } else {
+            $future->cancel;
+        }
     }
     eval { $stream->close_when_empty; 1 } if $stream && $stream->loop;
     return;
