@@ -1,0 +1,58 @@
+---
+class: standard
+completed: 2026-10-30T21:53:50Z
+created: 2026-10-30T21:39:07Z
+id: 82
+priority: medium
+started: 2026-10-30T21:46:39Z
+status: done
+tags:
+- skills
+- docs
+- escalated-from:kubernetes-ocp#243
+title: Consumer skill for using Net::Async::Kubernetes from other projects (working
+  name perl-net-async-kubernetes)
+updated: 2026-10-30T21:53:50Z
+---
+
+robocop, kubernetes-ocp's in-cluster controller, runs on Net::Async::Kubernetes and the
+repo has no skill for using it. Working name: `perl-net-async-kubernetes`.
+
+## What the consumer calls today (kubernetes-ocp at 3b4c8c7)
+
+- `Net::Async::Kubernetes->new(kubeconfig => $path)` and the in-cluster form without args — lib/OCP/Robocop/Controller.pm, lib/OCP/Cmd/InjectKey.pm
+- `->list('Kind', namespace => …)->get`, `->get(...)`
+- `->watcher('OCPNode', …)` — the watch stream robocop reconciles from
+
+Worth covering for consumers: Future return values and keeping them alive (link
+`perl-io-async-future`), watcher reconnect and resync behaviour as a caller sees it, the
+Controller/workqueue as an alternative to a hand-rolled loop, kubeconfig path vs document
+(OCP writes a temp file for this), in-cluster detection, how API errors surface, and
+custom resources through IO::K8s classes. Kubernetes::REST and IO::K8s usage already have
+consumer skills (`perl-kubernetes-rest`, `perl-io-k8s-kubernetes-classes`) — reference,
+don't repeat.
+
+## Why
+
+This repo's own skill is a maintainer skill: it is written as "load before editing <this
+dist>". A consumer project (here: kubernetes-ocp) needs the other half — how to *use* the
+module correctly from outside — and must not install the maintainer skill, which would
+fire on the wrong tasks. Precedent: kubernetes-rest ships `perl-kubernetes-rest` next to
+`kubernetes-rest-core`; io-k8s-p5 ships `perl-io-k8s-kubernetes-classes` next to
+`io-k8s-core`. The skill lives here because this repo owns its subject (skill
+`getty-skill-library`, "Where a skill lives"); consumers install it as `<name>@<this-repo>`.
+
+## Done when
+
+- A tracked `.claude/skills/<name>/SKILL.md` exists here, its description written as a
+  trigger for consumer work ("Use when calling <Module> from another project — …"), with
+  no overlap with the maintainer skill (link to it for internals instead).
+- The name follows the house naming rule (skill `getty-skill-library`, "Naming") and does
+  not collide with anything in `skilletor available`. Working name below; the repo's
+  agent decides.
+- It covers the surface a consumer actually calls (list below), the argument and return
+  shapes, how errors surface, and the traps a caller can step into — mined from the code
+  and tests (skill `skill-mining`), not from memory.
+- Wiring it into kubernetes-ocp is that board's card (see escalated-from), not this one.
+
+2026-10-30 21:53 Done: .claude/skills/perl-net-async-kubernetes/SKILL.md (148 lines) plus a Changes entry, commit beca475, pushed. Claims mined from lib/ and t/, behaviour run offline against the mock transport (credential order, kubeconfig path vs document, error shape on 404, patch content types, 410 replay, callback filtering, controller retries). Side findings: k83 here (nak-runtime on bookmarks), kubernetes-rest k77 (a kubeconfig document passed as the path lands whole in the error message).
