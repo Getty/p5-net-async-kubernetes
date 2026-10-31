@@ -1,6 +1,6 @@
 package Net::Async::Kubernetes::PortForwardListener;
 # ABSTRACT: Local TCP listeners forwarding to pod ports, like kubectl port-forward
-our $VERSION = '0.012';
+our $VERSION = '0.013';
 use strict;
 use warnings;
 use Carp qw(croak);
