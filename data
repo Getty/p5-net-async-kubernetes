@@ -1,0 +1,26 @@
+---
+claimed_at: 2026-11-06T20:53:59Z
+claimed_by: claude-k83
+class: standard
+completed: 2026-11-06T20:53:55Z
+created: 2026-10-30T21:53:15Z
+id: 83
+priority: low
+started: 2026-11-06T20:48:10Z
+status: done
+tags:
+- docs
+- skills
+title: nak-runtime still says the watcher sends no allowWatchBookmarks
+updated: 2026-11-06T20:53:59Z
+---
+
+Skill nak-runtime (around line 75) says "Kein allowWatchBookmarks". Watcher.pm sends allowWatchBookmarks (around line 401) and swallows BOOKMARK events (around 438-446); the POD and the Changes entry of 0.010 say so too. Found while writing the consumer skill perl-net-async-kubernetes (k82).
+
+Done when: nak-runtime describes the bookmark handling the watcher has.
+
+Befund gegen Watcher.pm: neben allowWatchBookmarks/BOOKMARK stimmten im Watcher-Abschnitt auch max_retries (off-by-one: gibt bei $failures > max_retries auf), der fehlende HTTP-410-Fall der Anfrage selbst, ms-Rundung nur mit Jitter und die start-No-op-Lesart nicht. Branch k83-nak-runtime-bookmarks (ab main 2b564e9), nak-pod-writer korrigiert den Abschnitt.
+
+nak-runtime Watcher-Abschnitt korrigiert (nak-pod-writer), Diff gegen Watcher.pm geprüft: allowWatchBookmarks in den Zyklus-Parametern, neuer BOOKMARK-Punkt, HTTP-410 der Anfrage, Jitter/ms-Rundung nur mit Jitter, max_retries-Zählung, start-No-op, Zustellreihenfolge. Nur .claude/skills/nak-runtime/SKILL.md, kein Changes-Eintrag. Commit-ready auf k83-nak-runtime-bookmarks.
+
+Committed as cfb40ced115f15e70372d7617aa9a548d3deb316 on k83-nak-runtime-bookmarks; no Changes entry (internal skill)
