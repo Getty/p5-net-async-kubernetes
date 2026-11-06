@@ -46,36 +46,56 @@ Konfiguration: `kube` (**schwache Referenz**), `resource`, `namespace`, `timeout
 `configure` geprüft, croak), `on_added`/`on_modified`/`on_deleted`/`on_error`/
 `on_event`. `start` ist idempotent; `stop`.
 
-- **Parameter je Zyklus**: `watch=true`, `timeoutSeconds`, die verfolgte
-  `resourceVersion`, Selektoren. `resourceVersion` wird aus jedem verarbeiteten
-  Chunk-Ergebnis aktualisiert. Die Auflösung der Ressource croakt in
-  `_start_watch` (beim Add/Start).
-- **410 Gone**: leert `resourceVersion`, verwirft die restlichen Events in diesem
-  Chunk, geht **nicht** an `on_error`; der Stream endet natürlich und verbindet sich
-  ohne Version neu.
+- **Parameter je Zyklus**: `watch=true`, `timeoutSeconds`, `allowWatchBookmarks=true`,
+  die verfolgte `resourceVersion`, Selektoren. `resourceVersion` wird aus jedem
+  verarbeiteten Chunk-Ergebnis aktualisiert, das eine trägt
+  (`process_watch_chunk` nimmt sie aus `object.metadata.resourceVersion`, auch bei
+  BOOKMARK). Die Auflösung der Ressource croakt in `_start_watch` (beim Add/Start).
+- **BOOKMARK**: trägt nur die `resourceVersion`, die wie oben übernommen wird. Für
+  den Stream zählt er als Event (`_stream_events++`, setzt `_failures` und
+  `_stream_error` zurück): ein Stream, der nur einen Bookmark brachte, ist regulär
+  gelaufen und verbindet sofort und ohne Meldung neu, die `min_watch_duration`-Regel
+  greift nicht. Für den Konsumenten ist er kein Event: `next` vor
+  `_dispatch_event`, kein Callback bekommt ihn, auch `on_event` nicht; weder Namens-
+  noch Typfilter entscheiden über ihn, auch `BOOKMARK` in `event_types` stellt
+  nichts zu. Zweck: Ohne Bookmarks hält ein stiller Watch, der ohne
+  `resourceVersion` startete, nur die Version des letzten initialen ADDED. Die ist
+  älter als der Stand, ab dem der Server den Watch begann, und der Reconnect spielt
+  von dort Geschichte nach. Ein Server, der nach den initialen Events keinen
+  Bookmark schickt (ältere), lässt dieses Fenster offen.
+- **410 Gone**: als ERROR-Event leert es `resourceVersion`, verwirft die restlichen
+  Events in diesem Chunk, geht **nicht** an `on_error`; der Stream endet natürlich
+  und verbindet sich ohne Version neu. Als HTTP-Status der Watch-Anfrage selbst
+  (aggregierte API-Server, Proxies): ist eine `resourceVersion` verfolgt, wird sie
+  vergessen, der Watcher startet sofort und still neu, und die Fehlerzahl bleibt
+  stehen (der Neustart zählt nicht als Erfolg). Ohne verfolgte Version ist es ein
+  normaler Fehlschlag mit `_watch_failed`, Backoff und Meldung.
 - **Reconnect**: ein Zyklus, der mit Status < 400 endet → sofortiger Neustart (und
   Zurücksetzen der Fehlerzahl) — außer er endete direkt nach einem Nicht-410-ERROR-
   Event oder ohne jedes Event innerhalb von `min_watch_duration` (Default 1 s,
   client-gos „very short watch"; gemessen mit `_now` = `$loop->time`, der
-  Test-Override-Punkt). Diese, eine Antwort ≥ 400 und eine gescheiterte Anfrage →
-  `_watch_failed`: Verzögerung `reconnect_delay * 2**(n-1)`, gedeckelt bei
-  `max_reconnect_delay` (Exponent gedeckelt bei 64), dann verkürzt (nie verlängert)
-  um `reconnect_jitter * _random_fraction` und auf ms gerundet (`_random_fraction` =
-  `rand`, der Test-Override-Punkt; Tests, die Delays prüfen, setzen
-  `reconnect_jitter => 0`), gehalten in `_retry_future`; ein Nicht-ERROR-Event auf
-  einem Stream setzt die Fehlerzahl zurück (ein ERROR-Event nie; ein 410 zählt für
-  die Leerstream-Regel als Event). Jeder Fehlschlag wird gemeldet — was
-  `event_types` auch sagt — als `Status`-Hashref (`reason => 'WatchFailed'`,
-  `code` = HTTP-Status, der Code des abschließenden ERROR-Events oder 0,
-  `message` „watch X failed, retrying in Ns: cause" (`_cause_text`, k74: ein
-  APIError als `HTTP <code> <reason>: <message>` aus seinen Accessoren, der Body
-  wenn er keinen Status hält; alles andere ohne sein abschließendes
-  ` at FILE line N.`), `details => {kind, retryAfterSeconds}`) an `on_error`, sonst
-  `warn`. Nach `max_retries` aufeinanderfolgenden Fehlschlägen hört er zuerst auf,
-  meldet dann „giving up after N retries". Kein `allowWatchBookmarks`, kein
-  Informer-Cache.
-- **`start`** ist ein No-op, solange gewatcht oder auf `_retry_future` gewartet wird,
-  und setzt die Fehlerzahl zurück. **`stop`** bricht ein pending `_retry_future` ab
+  Test-Override-Punkt). Diese, eine Antwort ≥ 400 (außer 410 mit verfolgter
+  `resourceVersion`, s. o.) und eine gescheiterte Anfrage → `_watch_failed`:
+  Verzögerung `reconnect_delay * 2**(n-1)`, gedeckelt bei `max_reconnect_delay`
+  (Exponent gedeckelt bei 64), dann, nur wenn `reconnect_jitter` ≠ 0 ist, um einen
+  Anteil verkürzt (nie verlängert; `$delay -= $delay * $jitter * _random_fraction`)
+  und auf ms gerundet (`_random_fraction` = `rand`, der Test-Override-Punkt; Tests,
+  die Delays prüfen, setzen `reconnect_jitter => 0`), gehalten in `_retry_future`;
+  ein Nicht-ERROR-Event auf einem Stream setzt die Fehlerzahl zurück (ein
+  ERROR-Event nie; ein 410 zählt für die Leerstream-Regel als Event). Jeder
+  Fehlschlag wird gemeldet — was `event_types` auch sagt — als `Status`-Hashref
+  (`reason => 'WatchFailed'`, `code` = HTTP-Status, der Code des abschließenden
+  ERROR-Events oder 0, `message` „watch X failed, retrying in Ns: cause"
+  (`_cause_text`, k74: ein APIError als `HTTP <code> <reason>: <message>` aus
+  seinen Accessoren, der Body wenn er keinen Status hält; alles andere ohne sein
+  abschließendes ` at FILE line N.`), `details => {kind, retryAfterSeconds}`) an
+  `on_error`, sonst `warn`. `max_retries` zählt Wiederholungen: aufgegeben wird bei
+  `$failures > $max_retries`, also erst beim Fehlschlag nach `max_retries`
+  Wiederholungen (bei `0` schon beim ersten). Dann ruft er zuerst `stop` und meldet
+  „giving up after N retries" ohne `retryAfterSeconds`. Kein Informer-Cache.
+- **`start`** kehrt als No-op sofort zurück, solange gewatcht oder auf
+  `_retry_future` gewartet wird; sonst setzt es `_stopped` und die Fehlerzahl
+  zurück und startet den Watch. **`stop`** bricht ein pending `_retry_future` ab
   und verschiebt `$f->cancel` auf `$loop->later` — ein Cancel im eigenen `on_read`
   der Verbindung löst Net::Async::HTTPs „Spurious on_read of connection while idle"
   aus. Jeder neue Cancel-Pfad muss dasselbe tun. `on_error` darf `stop` rufen.
@@ -83,7 +103,9 @@ Konfiguration: `kube` (**schwache Referenz**), `resource`, `namespace`, `timeout
   den gesetzten Callbacks; `on_event` = Auffangnetz), dann Namensfilter (bei ERROR
   übersprungen), dann `on_event($event)` und eines von
   `on_added`/`on_modified`/`on_deleted($object)`; `on_error` bekommt den **rohen
-  Hashref** für ERROR-Events. Callbacks sind nicht eval-geschützt.
+  Hashref** für ERROR-Events. BOOKMARK-Events und 410-ERROR-Events erreichen
+  `_dispatch_event` nie; beide werden vorher im Chunk-Callback verbraucht. Callbacks
+  sind nicht eval-geschützt.
 
 ## Controller runtime
 
