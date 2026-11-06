@@ -1,0 +1,8 @@
+{"action":"move","agent":"Torsten Raudssus","detail":"done","task_id":82,"ts":"2026-10-30T21:53:50Z"}
+{"action":"move","agent":"Torsten Raudssus","detail":"todo","task_id":83,"ts":"2026-11-06T20:48:10Z"}
+{"action":"move","agent":"claude-k83","detail":"in-progress","task_id":83,"ts":"2026-11-06T20:48:15Z"}
+{"action":"edit","agent":"claude-k83","detail":"in-progress","task_id":83,"ts":"2026-11-06T20:51:22Z"}
+{"action":"handoff","agent":"claude-k83","detail":"review","task_id":83,"ts":"2026-11-06T20:53:22Z"}
+{"action":"move","agent":"claude-k83","detail":"done","task_id":83,"ts":"2026-11-06T20:53:55Z"}
+{"action":"edit","agent":"claude-k83","detail":"done","task_id":83,"ts":"2026-11-06T20:53:59Z"}
+{"action":"create","agent":"Torsten Raudssus","detail":"backlog","task_id":84,"ts":"2026-11-06T21:17:09Z"}
