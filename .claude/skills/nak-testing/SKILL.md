@@ -61,7 +61,7 @@ prozessweit gemmemoisierten `loop()` hinzugefügt.
 - **Lauf**: `prove -l t/` (mock) · `TEST_KUBERNETES_REST_KUBECONFIG=~/.kube/config
   prove -lv t/` (live, nur minikube — verändert den Cluster).
 
-## Gegen die gepinnten Kubernetes::REST / IO::K8s (k66)
+## Gegen die gepinnten Kubernetes::REST / IO::K8s
 
 `maint/prove-pinned.sh [--lib DIR] [--setup] [--setup-only] [-- PROVE_ARGS]` liest
 beide Mindestversionen aus dem `cpanfile`, installiert genau diese plus den Rest

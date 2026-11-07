@@ -23,8 +23,8 @@ meldet es nach seinem eigenen Vertrag. Nichts Unbrauchbares erreicht `build_path
   gesegnetes Objekt: „got an object of class …"). Alles andere geht an
   `_usable_class`. `get` und `delete` (Klassenform) rufen denselben Helfer auch auf
   ihrem Objektnamen-Positional auf — `get('Pod', $ref)` und
-  `delete('Pod', {name=>'web'})` stringifizierten die Referenz sonst in den Pfad und
-  scheiterten erst als 404 des Servers (k70, `t/37`). Die `_named_args`-Methoden
+  `delete('Pod', {name=>'web'})` würden die Referenz sonst in den Pfad stringifizieren
+  und erst als 404 des Servers scheitern (Test `t/37`). Die `_named_args`-Methoden
   (`log`, die Duplex-Methoden, `patch` in Klassenform) weisen eine Referenz dort
   schon als „Invalid arguments to METHOD()" ab (ihr `!ref`-Positional-Test).
 - **`_usable_class($name, $class)`** — die Klasse muss laden (sonst deren
@@ -39,14 +39,14 @@ meldet es nach seinem eigenen Vertrag. Nichts Unbrauchbares erreicht `build_path
 
 ## Die Fehlerkonvention im Detail
 
-- **`_unknown_argument_error($label, \%args, @allowed)`** (k63): der erste unbekannte
+- **`_unknown_argument_error($label, \%args, @allowed)`**: der erste unbekannte
   Key in Sortierreihenfolge als „Unknown argument 'KEY' to METHOD() (allowed: a, b)"
   — die Wortung von Kubernetes::REST. Geprüft direkt nach dem Argument-Parsing, vor
   der Klassenauflösung, in `list` (`_list_request`), `get`, `log`,
   `patch`/`patch_status` (`_patch_args`; Objektform nur `patch`, `type`) und
-  `ensure_only` (croakt). k65 fügte `port_forward`, `exec`, `attach`, `cp_to_pod`,
-  `cp_from_pod` hinzu (vorher wanderten Reste nach `build_path`, das ein
-  Neben-`subresource` in den Pfad las); seit k67 parsen diese fünf und `log` über
+  `ensure_only` (croakt), ebenso in `port_forward`, `port_forward_listen`, `exec`,
+  `attach`, `cp_to_pod` und `cp_from_pod` — so erreicht kein Rest `build_path`, das
+  ein Neben-`subresource` in den Pfad läse. Diese sechs und `log` parsen über
   `_named_args($label, \@args, @allowed)`: eine Liste je Methode ist zugleich der
   Positional-Namen-Test (ein erstes Argument, das ein erlaubter Key ist, oder eine
   Referenz, startet die Keyed-Form) und die Unbekannt-Key-Prüfung; Rückgabe
@@ -54,12 +54,12 @@ meldet es nach seinem eigenen Vertrag. Nichts Unbrauchbares erreicht `build_path
   ungerade Liste; Test `t/45`. Ebenso der `patch_status` des Controllers (über
   `$self->kube->`; Objektform nur `status`, `type`) — alles failed Futures, direkt
   nach dem Argument-Parsing (cp_*: nach ihrer Loop-Prüfung).
-- **`delete`** nutzt es ebenfalls (k64), nach Klassen- und Namensprüfung (seit k60);
+- **`delete`** nutzt es ebenfalls, nach Klassen- und Namensprüfung;
   `_propagation_policy_error` formuliert eine schlechte Policy wie REST:
   „Unknown propagationPolicy 'x' for delete() (use: Background, Foreground, Orphan)".
 - **`watcher`** braucht nichts: `IO::Async::Notifier::configure` croakt auf einen
   unbekannten Key.
-- **Eine ungerade Optionsliste** (k69, Test `t/46`) ist „Invalid arguments to
+- **Eine ungerade Optionsliste** (Test `t/46`) ist „Invalid arguments to
   METHOD()" — geprüft **vor** der Unbekannt-Key-Prüfung, nie eine Perl-Warnung plus
   ein Request mit dem Wert des Fremd-Keys: failed Future in `get` (eigener Parse: ein
   einzelnes Argument bleibt der Name, auch wenn es `namespace` heißt, das
@@ -90,7 +90,7 @@ meldet es nach seinem eigenen Vertrag. Nichts Unbrauchbares erreicht `build_path
   einmal, beim ersten Gebrauch — das blockiert die Loop und umgeht `_do_request` —
   außer `discover` lief vorher. Seine Map löst die ausgelieferten Kinds auf; ein per
   Discovery gelistetes Kind löst zu nichts aus, was ausgeliefert wird.
-- **`discover`** (k59, nie implizit gerufen): aus ohne `resource_map_from_cluster`
+- **`discover`** (nie implizit gerufen): aus ohne `resource_map_from_cluster`
   (fertig, nichts gesendet). Sonst RESTs `prepare_discovery_requests`: beide Requests
   durch `_checked_request` (`needs_all`; ≥ 400 → `fail($err, 'http', $response)`),
   dann `absorb_discovery` in `then` (ein Croak — kaputtes JSON — scheitert das
@@ -105,7 +105,7 @@ meldet es nach seinem eigenen Vertrag. Nichts Unbrauchbares erreicht `build_path
   gesplittet (ein qualifiziertes `group/version/Kind` behält Gruppe und Version;
   `+…`- und `…::…`-Namen tragen kein Kind).
 - **Ein `apiVersion` im Hint pinnt Gruppe/Version.** Kubernetes::REST verweigert eine
-  gepinnte, die der Cluster nicht bedient (sein k43); der Client prüft selbst mit:
+  gepinnte, die der Cluster nicht bedient; der Client prüft selbst mit:
   `_request_path` lehnt einen Pfad außerhalb `/apis/<group>/<version>/`
   (`/api/<version>/` für core) mit RESTs Meldung ab, und `_usable_class` prüft einen
   qualifizierten Namen, der über `_request_path` zu Unstructured aufgelöst wurde

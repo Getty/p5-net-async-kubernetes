@@ -86,7 +86,7 @@ Konfiguration: `kube` (**schwache Referenz**), `resource`, `namespace`, `timeout
   Fehlschlag wird gemeldet — was `event_types` auch sagt — als `Status`-Hashref
   (`reason => 'WatchFailed'`, `code` = HTTP-Status, der Code des abschließenden
   ERROR-Events oder 0, `message` „watch X failed, retrying in Ns: cause"
-  (`_cause_text`, k74: ein APIError als `HTTP <code> <reason>: <message>` aus
+  (`_cause_text`: ein APIError als `HTTP <code> <reason>: <message>` aus
   seinen Accessoren, der Body wenn er keinen Status hält; alles andere ohne sein
   abschließendes ` at FILE line N.`), `details => {kind, retryAfterSeconds}`) an
   `on_error`, sonst `warn`. `max_retries` zählt Wiederholungen: aufgegeben wird bei
@@ -115,10 +115,10 @@ eigenen Client, hält ihn stark — er besitzt ihn), `on_reconcile` (Pflicht),
 `watch_resource($resource, %watcher_args, key_for=>sub)`, `start`/`stop`,
 `get_object`/`list_objects` (dünne `$kube->`-Wrapper), `patch_status` (eigene Signatur
 `status => {...}`, merge als Default; jeden anderen Key weist der Controller selbst
-ab (k65) — der Client sieht nur `patch`/`type` — und eine ungerade Liste nach dem
-Objekt oder dem positionalen Namen (k68, `Invalid arguments to patch_status()`,
-wie die Keyed-Form es immer tat; der Client weist es seit k69 genauso ab; baut
-`{status => ...}` und delegiert an `patch_status` des Clients), `update_status`
+ab — der Client sieht nur `patch`/`type` — und eine ungerade Liste nach dem Objekt,
+nach dem positionalen Namen oder in der Keyed-Form als `Invalid arguments to
+patch_status()`, wie es auch der Client tut; baut `{status => ...}` und delegiert an
+`patch_status` des Clients), `update_status`
 (delegiert an den Client). Beide melden jeden schlechten Input als failed Future —
 `update_status` prüft vorab mit `_object_class`, wo der Client croaken würde.
 
