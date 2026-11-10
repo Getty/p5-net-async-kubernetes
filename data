@@ -1,0 +1,23 @@
+---
+claimed_at: 2026-11-10T02:16:43Z
+claimed_by: nak-worker-k84
+class: standard
+completed: 2026-11-10T02:16:43Z
+created: 2026-11-06T21:17:09Z
+id: 84
+priority: low
+started: 2026-11-10T01:52:59Z
+status: done
+tags:
+- feature
+- kubernetes-rest
+title: Pass response headers and fieldValidation through, so Kubernetes::REST on_warning
+  and field_validation reach the async client
+updated: 2026-11-10T02:16:43Z
+---
+
+Kubernetes::REST 1.111 (local tree, master d8707a2) adds on_warning (a coderef that check_response calls for every Warning header) and field_validation / a per-call fieldValidation option on create, update, update_status, patch and patch_status. Both need the request path to cooperate: check_response reads Warning headers from Kubernetes::REST::HTTPResponse->headers (hashref, lower-cased name to arrayref of values), which the async client does not fill when it builds the HTTPResponse, and fieldValidation is a query parameter the async client has to send on its own write path. Today neither reaches Net::Async::Kubernetes: no warnings are delivered, and fieldValidation is not sent. Done = the async client builds HTTPResponse with headers (on_warning fires, a test with a Warning: 299 - "text" response), passes field_validation / fieldValidation through like the sync client, and the POD says so. Pin Kubernetes::REST to the version that has on_warning. Not part of the 2026-11-06 release round.
+
+Commit 836f1a5 on branch k84-warnings. Decisions: bad fieldValidation/option fails the Future for create/patch/patch_status and croaks for update/update_status (matches each method's existing error convention); messages worded as in Kubernetes::REST; bad client-level field_validation/on_warning croak when rest is first built (lazy). Streaming transport also fills headers. cpanfile pinned to 1.111 (local tree). Not run: maint/prove-pinned.sh (needs network, 1.111 not on CPAN). Mock mode only.
+
+Review follow-up, commit 43e5e28: Watcher now calls check_response after an accepted (<400) stream, so on_warning fires for a 200 watch (t/54, red before). Tests added: ensure PUT and the 409 retry send the client field_validation. Sync ensure does NOT deliver warnings of a 409 response (it only _check_responses non-409 answers), so the async ensure is left the same; the 410-on-request branch in the Watcher also stays as it was.
