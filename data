@@ -1,0 +1,21 @@
+---
+claimed_at: 2026-11-10T02:56:37Z
+claimed_by: nak-worker-k85
+class: standard
+completed: 2026-11-10T02:56:37Z
+created: 2026-11-10T02:47:48Z
+id: 85
+priority: high
+started: 2026-11-10T02:56:37Z
+status: done
+tags:
+- tests
+- portability
+title: 't/39-mock-http-failures.t fails on perl 5.20: a list slice past the end is
+  empty before 5.22'
+updated: 2026-11-10T02:56:37Z
+---
+
+Found by the hub pre-release smoke (2026-11-10, perl:5.20-buster, requires only): t/39-mock-http-failures.t line 204, is_deeply([ ($bad->failure)[1 .. 2] ], [ undef, undef ], ...) fails with got = []. Before perl 5.22 a list slice whose indices all lie past the end of the list returns the empty list; from 5.22 on it returns one undef per index. The dist declares perl 5.020, so every 5.20 smoker reports FAIL. Done = the assertion reads the failure into named variables (my (undef, $category, $response) = $bad->failure) and compares those; every other list slice in t/ and lib/ that can run past the end is checked the same way (grep for ")[" slices on ->failure, ->get, function results); suite green. Test-only: no Changes entry unless lib changes.
+
+Commit c5c0d6d on k85-slice. Only slice running past the list end was t/39 line 204; lib/ has no list slices; other ->failure slices use [0] (always present) or [2] on a 403 (present). Suite mock mode: 56 files, 404 tests green (5.20 proof pending with coordinator).
