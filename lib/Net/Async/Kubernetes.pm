@@ -58,6 +58,12 @@ sub configure {
     if (exists $params{with}) {
         $self->{with} = delete $params{with};
     }
+    if (exists $params{on_warning}) {
+        $self->{on_warning} = delete $params{on_warning};
+    }
+    if (exists $params{field_validation}) {
+        $self->{field_validation} = delete $params{field_validation};
+    }
 
     # Resolve server/credentials via Kubeconfig (handles kubeconfig files
     # and in-cluster service account auto-detection)
@@ -88,7 +94,8 @@ sub configure {
 
 Internal L<IO::Async::Notifier> configuration method. Handles initialization
 of C<kubeconfig>, C<context>, C<server>, C<credentials>, C<resource_map>,
-C<resource_map_from_cluster> and C<with> parameters.
+C<resource_map_from_cluster>, C<with>, C<on_warning> and C<field_validation>
+parameters.
 
 If C<kubeconfig> is provided without explicit C<server> or C<credentials>,
 they are loaded automatically via L<Kubernetes::REST::Kubeconfig>. So are
@@ -130,6 +137,40 @@ sub resource_map             { $_[0]->{resource_map} }
 =attr resource_map
 
 Optional. Custom resource map for short class names.
+
+=cut
+
+sub on_warning               { $_[0]->{on_warning} }
+
+=attr on_warning
+
+Optional. A code reference called for every C<Warning> header of an API
+response -- a field the server dropped, a deprecated API -- as
+C<< $on_warning->($text, $context) >>, in header order, before an error
+response fails its L<Future>. It is handed to L<Kubernetes::REST/on_warning>
+and behaves as there; a value that is no code reference croaks when the
+client first builds its L</rest>. Without it, warnings are dropped.
+
+    my $kube = Net::Async::Kubernetes->new(
+        kubeconfig => $path,
+        on_warning => sub { my ($text, $context) = @_; warn "$context: $text\n" },
+    );
+
+=cut
+
+sub field_validation         { $_[0]->{field_validation} }
+
+=attr field_validation
+
+Optional. C<Strict>, C<Warn> or C<Ignore>: how the API server treats unknown or
+duplicate fields in a write, sent as the C<fieldValidation> query parameter of
+L</create>, L</update>, L</update_status>, L</patch> and L</patch_status> (and
+of the create and update inside L</ensure>). A C<fieldValidation> option of a
+single call wins over it. Without either, nothing is sent and the server's
+default applies. Any other value croaks when the client first builds its
+L</rest>, as L<Kubernetes::REST/field_validation> does. With C<Warn>, the
+server reports the fields it dropped only in a C<Warning> header, which
+L</on_warning> receives.
 
 =cut
 
@@ -228,6 +269,8 @@ sub rest {
         resource_map_from_cluster => $self->resource_map_from_cluster,
         ($self->resource_map ? (resource_map => $self->resource_map) : ()),
         with        => $self->with,
+        (defined $self->on_warning       ? (on_warning       => $self->on_warning)       : ()),
+        (defined $self->field_validation ? (field_validation => $self->field_validation) : ()),
     );
 }
 
@@ -791,8 +834,10 @@ C<'group/version/Kind'> name -- see L</expand_class>
 =cut
 
 sub create {
-    my ($self, $object) = @_;
+    my ($self, $object, @opts) = @_;
 
+    my ($opts_error, $field_validation) = $self->_write_options('create', @opts);
+    return Future->fail($opts_error) if defined $opts_error;
     my $rest = $self->_rest;
     my ($class, $error) = $self->_object_class('create', $object);
     return Future->fail($error) unless defined $class;
@@ -802,7 +847,8 @@ sub create {
 
     (my $path, $error) = $self->_request_path($class, $object, namespace => $namespace);
     return Future->fail($error) unless defined $path;
-    my $req = $rest->prepare_request('POST', $path, body => $object->TO_JSON);
+    my $req = $rest->prepare_request('POST', $path, body => $object->TO_JSON,
+        $self->_write_parameters($field_validation));
 
     return $self->_checked_request($req, "create " . ref($object))->then(sub {
         my ($response) = @_;
@@ -828,13 +874,20 @@ Arguments:
 
 =item C<$object> - IO::K8s object instance (e.g., C<IO::K8s::Api::Core::V1::Pod>)
 
+=item C<fieldValidation> - Optional: C<Strict>, C<Warn> or C<Ignore>, sent as
+the C<fieldValidation> query parameter. It wins over L</field_validation>;
+any other value, and any other option, fails the L<Future> before a request
+is sent.
+
 =back
 
 =cut
 
 sub update {
-    my ($self, $object) = @_;
+    my ($self, $object, @opts) = @_;
 
+    my ($opts_error, $field_validation) = $self->_write_options('update', @opts);
+    croak $opts_error if defined $opts_error;
     my $rest = $self->_rest;
     my ($class, $error) = $self->_object_class('update', $object);
     croak $error unless defined $class;
@@ -845,7 +898,8 @@ sub update {
     (my $path, $error) = $self->_request_path($class, $object,
         name => $name, namespace => $namespace);
     croak $error unless defined $path;
-    my $req = $rest->prepare_request('PUT', $path, body => $object->TO_JSON);
+    my $req = $rest->prepare_request('PUT', $path, body => $object->TO_JSON,
+        $self->_write_parameters($field_validation));
 
     return $self->_checked_request($req, "update " . ref($object))->then(sub {
         my ($response) = @_;
@@ -872,13 +926,18 @@ Arguments:
 
 =item C<$object> - Modified IO::K8s object with updated fields
 
+=item C<fieldValidation> - Optional: C<Strict>, C<Warn> or C<Ignore>, as for
+L</create>. A bad value or an unknown option croaks synchronously.
+
 =back
 
 =cut
 
 sub update_status {
-    my ($self, $object) = @_;
+    my ($self, $object, @opts) = @_;
 
+    my ($opts_error, $field_validation) = $self->_write_options('update_status', @opts);
+    croak $opts_error if defined $opts_error;
     my $rest = $self->_rest;
     my ($class, $error) = $self->_object_class('update_status', $object);
     croak $error unless defined $class;
@@ -892,7 +951,8 @@ sub update_status {
         subresource => 'status',
     );
     croak $error unless defined $path;
-    my $req = $rest->prepare_request('PUT', $path, body => $object->TO_JSON);
+    my $req = $rest->prepare_request('PUT', $path, body => $object->TO_JSON,
+        $self->_write_parameters($field_validation));
 
     return $self->_checked_request($req, "update_status $class")->then(sub {
         my ($response) = @_;
@@ -923,13 +983,17 @@ Arguments:
 =item C<$object> - IO::K8s object with C<metadata.name> (and C<namespace> if
 namespaced) and the desired C<status>
 
+=item C<fieldValidation> - Optional: C<Strict>, C<Warn> or C<Ignore>, as for
+L</create>. A bad value or an unknown option croaks synchronously.
+
 =back
 
 =cut
 
 # Argument handling shared by patch() and patch_status(): the object form and
 # both class+name forms, the required patch document and the patch type.
-# Returns (undef, $class, $name, $namespace, $patch, $content_type), or just
+# Returns (undef, $class, $name, $namespace, $patch, $content_type,
+# $field_validation), or just
 # the failure message, which the caller turns into a failed Future. $label
 # names the calling method in those messages; $default_type is the patch type
 # used when the caller passes none.
@@ -937,7 +1001,7 @@ sub _patch_args {
     my ($self, $label, $default_type, $class_or_object, @rest_args) = @_;
 
     my $rest = $self->_rest;
-    my ($class, $name, $namespace, $patch, $patch_type);
+    my ($class, $name, $namespace, $patch, $patch_type, %args);
 
     if (ref($class_or_object) && blessed($class_or_object)) {
         my $object = $class_or_object;
@@ -947,14 +1011,14 @@ sub _patch_args {
         $name = $metadata->name or return "object must have metadata.name";
         $namespace = $metadata->namespace;
         return "Invalid arguments to $label()" if @rest_args % 2;
-        my %args = @rest_args;
-        my $unknown = $self->_unknown_argument_error($label, \%args, qw( patch type ));
+        %args = @rest_args;
+        my $unknown = $self->_unknown_argument_error($label, \%args, qw( patch type fieldValidation ));
         return $unknown if defined $unknown;
         $patch = $args{patch} // return "$label requires 'patch' parameter";
         $patch_type = $args{type} // $default_type;
     } else {
-        my ($arg_error, %args) = $self->_named_args($label, \@rest_args,
-            qw( name namespace patch type ));
+        (my $arg_error, %args) = $self->_named_args($label, \@rest_args,
+            qw( name namespace patch type fieldValidation ));
         return $arg_error if defined $arg_error;
 
         ($class, my $error) = $self->_resolve_class($class_or_object);
@@ -973,14 +1037,17 @@ sub _patch_args {
     my $content_type = $patch_types{$patch_type}
         // return "Unknown patch type '$patch_type'";
 
-    return (undef, $class, $name, $namespace, $patch, $content_type);
+    my ($fv_error, $field_validation) = $self->_field_validation_for($label, $args{fieldValidation});
+    return $fv_error if defined $fv_error;
+
+    return (undef, $class, $name, $namespace, $patch, $content_type, $field_validation);
 }
 
 sub patch {
     my ($self, $class_or_object, @rest_args) = @_;
 
     my $rest = $self->_rest;
-    my ($error, $class, $name, $namespace, $patch, $content_type)
+    my ($error, $class, $name, $namespace, $patch, $content_type, $field_validation)
         = $self->_patch_args('patch', 'strategic', $class_or_object, @rest_args);
     return Future->fail($error) if defined $error;
 
@@ -988,7 +1055,8 @@ sub patch {
         name => $name, namespace => $namespace);
     return Future->fail($error) unless defined $path;
     my $req = $rest->prepare_request('PATCH', $path,
-        body => $patch, content_type => $content_type);
+        body => $patch, content_type => $content_type,
+        $self->_write_parameters($field_validation));
 
     return $self->_checked_request($req, "patch $class")->then(sub {
         my ($response) = @_;
@@ -1033,6 +1101,9 @@ Arguments:
 
 =item C<type> - Patch type: C<'strategic'> (default), C<'merge'>, or C<'json'>
 
+=item C<fieldValidation> - C<Strict>, C<Warn> or C<Ignore>, as for L</create>;
+a bad value fails the L<Future> before a request is sent
+
 =back
 
 =cut
@@ -1041,7 +1112,7 @@ sub patch_status {
     my ($self, $class_or_object, @rest_args) = @_;
 
     my $rest = $self->_rest;
-    my ($error, $class, $name, $namespace, $patch, $content_type)
+    my ($error, $class, $name, $namespace, $patch, $content_type, $field_validation)
         = $self->_patch_args('patch_status', 'merge', $class_or_object, @rest_args);
     return Future->fail($error) if defined $error;
 
@@ -1052,7 +1123,8 @@ sub patch_status {
     );
     return Future->fail($error) unless defined $path;
     my $req = $rest->prepare_request('PATCH', $path,
-        body => $patch, content_type => $content_type);
+        body => $patch, content_type => $content_type,
+        $self->_write_parameters($field_validation));
 
     return $self->_checked_request($req, "patch_status $class")->then(sub {
         my ($response) = @_;
@@ -1106,6 +1178,9 @@ Arguments:
 C<type> is C<json>)
 
 =item C<type> - Patch type: C<'merge'> (default), C<'strategic'>, or C<'json'>
+
+=item C<fieldValidation> - C<Strict>, C<Warn> or C<Ignore>, as for L</create>;
+a bad value fails the L<Future> before a request is sent
 
 =back
 
@@ -1218,6 +1293,43 @@ sub _named_args {
     my $unknown = $self->_unknown_argument_error($label, \%args, @allowed);
     return $unknown if defined $unknown;
     return (undef, %args);
+}
+
+# The fieldValidation values the API server takes, spelled as it spells them.
+my @FIELD_VALIDATIONS = qw( Strict Warn Ignore );
+
+# (undef, $field_validation) for a write: the call's own value when it gives
+# one, else the client's field_validation, else undef (nothing is sent). A
+# value the API server does not take is (message), naming the option and the
+# allowed values and never the value, in Kubernetes::REST's wording. $label
+# names the calling method.
+sub _field_validation_for {
+    my ($self, $label, $requested) = @_;
+    return (undef, $self->field_validation) unless defined $requested;
+    return (undef, $requested) if grep { $_ eq $requested } @FIELD_VALIDATIONS;
+    return "Unknown fieldValidation value for $label() (use: "
+        . join(', ', @FIELD_VALIDATIONS) . ')';
+}
+
+# The options after the object of create(), update() and update_status():
+# fieldValidation only. Returns (undef, $field_validation), or just the
+# failure message, which the caller turns into a failed Future or a croak.
+sub _write_options {
+    my ($self, $label, @opts) = @_;
+    return "Invalid arguments to $label()" if @opts % 2;
+    my %opts = @opts;
+    my $unknown = $self->_unknown_argument_error($label, \%opts, 'fieldValidation');
+    return $unknown if defined $unknown;
+    return $self->_field_validation_for($label, $opts{fieldValidation});
+}
+
+# prepare_request's parameters for a write: the fieldValidation query
+# parameter, or nothing at all when there is none.
+sub _write_parameters {
+    my ($self, $field_validation) = @_;
+    return defined $field_validation
+        ? (parameters => { fieldValidation => $field_validation })
+        : ();
 }
 
 # The propagationPolicy values the API server accepts in a DELETE's
@@ -1420,7 +1532,8 @@ sub ensure {
     my $replace = sub {
         my ($existing) = @_;
         $metadata->resourceVersion($existing->metadata->resourceVersion);
-        return $self->_request_unchecked('PUT', $path, body => $object->TO_JSON)->then(sub {
+        return $self->_request_unchecked('PUT', $path, body => $object->TO_JSON,
+            $self->_write_parameters($self->field_validation))->then(sub {
             my ($response) = @_;
             if ($response->status == 409) {
                 return $fetch->('ensure refetch')->then(sub {
@@ -1463,7 +1576,8 @@ sub ensure {
     # there on it is an existing object like any other, special cases
     # included - a Job must not get a PUT onto its immutable Pod template.
     my $create = sub {
-        return $self->_request_unchecked('POST', $collection, body => $object->TO_JSON)->then(sub {
+        return $self->_request_unchecked('POST', $collection, body => $object->TO_JSON,
+            $self->_write_parameters($self->field_validation))->then(sub {
             my ($response) = @_;
             return $fetch->('ensure post-409 get')->then($apply_to_existing)
                 if $response->status == 409;
@@ -2672,8 +2786,23 @@ sub _do_request {
         return Future->done(Kubernetes::REST::HTTPResponse->new(
             status  => $response->code,
             content => $response->decoded_content(charset => 'none') // $response->content // '',
+            headers => _response_headers($response),
         ));
     });
+}
+
+# The response headers the way Kubernetes::REST::HTTPResponse takes them: a
+# hashref keyed by lower-cased name, each value an arrayref of that header's
+# values in the order they came, so a repeated Warning header gives several.
+# This is what lets check_response deliver them to on_warning.
+sub _response_headers {
+    my ($response) = @_;
+    my %headers;
+    $response->headers->scan(sub {
+        my ($name, $value) = @_;
+        push @{ $headers{lc $name} }, $value;
+    });
+    return \%headers;
 }
 
 # Resolves with the response status and, for an error response (>= 400), its
@@ -2713,6 +2842,7 @@ sub _do_streaming_request {
         return Future->done(Kubernetes::REST::HTTPResponse->new(
             status  => $response->code,
             content => $error_body,
+            headers => _response_headers($response),
         ));
     });
 }

@@ -9,7 +9,7 @@ requires 'IO::Async::Notifier';
 requires 'IO::Async::SSL', '0.12';
 requires 'IO::K8s', '1.112';
 requires 'IO::Socket::SSL';
-requires 'Kubernetes::REST', '1.110';
+requires 'Kubernetes::REST', '1.111';
 requires 'Net::Async::HTTP', '0.49';
 requires 'Net::Async::WebSocket::Client', '0.14';
 requires 'Protocol::WebSocket';

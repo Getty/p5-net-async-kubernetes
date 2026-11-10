@@ -111,13 +111,13 @@ subtest 'patch and patch_status refuse an unknown option' => sub {
     for my $method (qw(patch patch_status)) {
         refused("$method, class form", sub {
             $kube->$method('Pod', 'web', namespace => 'default', patch => {}, typ => 'merge');
-        }, "Unknown argument 'typ' to $method() (allowed: name, namespace, patch, type)");
+        }, "Unknown argument 'typ' to $method() (allowed: name, namespace, patch, type, fieldValidation)");
         refused("$method, keyed form", sub {
             $kube->$method('Pod', name => 'web', patch => {}, strategy => 'merge');
-        }, "Unknown argument 'strategy' to $method() (allowed: name, namespace, patch, type)");
+        }, "Unknown argument 'strategy' to $method() (allowed: name, namespace, patch, type, fieldValidation)");
         refused("$method, object form", sub {
             $kube->$method(pod($kube), patch => {}, namespace => 'other');
-        }, "Unknown argument 'namespace' to $method() (allowed: patch, type)");
+        }, "Unknown argument 'namespace' to $method() (allowed: patch, type, fieldValidation)");
     }
 };
 
