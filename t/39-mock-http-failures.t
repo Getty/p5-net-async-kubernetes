@@ -201,7 +201,10 @@ subtest 'a caller can catch the http category and branch on the status' => sub {
     # An argument error is no HTTP failure: no category, no response.
     my $bad = $kube->delete('ConfigMap');
     ok($bad->is_failed, 'an argument error fails the Future');
-    is_deeply([ ($bad->failure)[1 .. 2] ], [ undef, undef ], 'without category or response');
+    # Named variables, not a list slice: before perl 5.22 a slice whose
+    # indices all lie past the end of the list is empty instead of undefs.
+    my (undef, $category, $response) = $bad->failure;
+    is_deeply([ $category, $response ], [ undef, undef ], 'without category or response');
 };
 
 subtest 'a Kubernetes::REST::APIError from check_response is handed on as it is' => sub {
