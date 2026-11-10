@@ -163,6 +163,44 @@ subtest 'ensure creates with the client default' => sub {
     is_deeply query($u[1]), { fieldValidation => 'Strict' }, 'the create carries the default';
 };
 
+# Scripted answers, one per request in order; returns [ method, uri ] pairs.
+sub with_script {
+    my ($script, $code) = @_;
+    my @log;
+    my @queue = @$script;
+    no warnings 'redefine';
+    local *Net::Async::HTTP::do_request = sub {
+        my ($http, %req) = @_;
+        push @log, [ $req{method}, $req{uri} ];
+        my $status = shift @queue or die "no answer left for $req{method}\n";
+        my $body = $status == 409 ? { kind => 'Status', code => 409, message => 'Conflict' }
+                 : { %$pod_body, metadata => { %{ $pod_body->{metadata} }, resourceVersion => '7' } };
+        return Future->done(HTTP::Response->new($status, 'X',
+            ['Content-Type' => 'application/json'], $JSON->encode($body)));
+    };
+    $code->();
+    return @log;
+}
+
+subtest 'ensure updates with the client default' => sub {
+    my $kube = make_kube(field_validation => 'Strict');
+    my @log = with_script([200, 200], sub { $kube->ensure(pod())->get });
+    is_deeply [ map { $_->[0] } @log ], [qw(GET PUT)], 'GET, then PUT';
+    is_deeply query($log[1][1]), { fieldValidation => 'Strict' }, 'the PUT carries the default';
+
+    $kube = make_kube();
+    @log = with_script([200, 200], sub { $kube->ensure(pod())->get });
+    is_deeply query($log[1][1]), {}, 'without a default, nothing is sent';
+};
+
+subtest 'the retry after a 409 in ensure takes the client default' => sub {
+    my $kube = make_kube(field_validation => 'Warn');
+    my @log = with_script([200, 409, 200, 200], sub { $kube->ensure(pod())->get });
+    is_deeply [ map { $_->[0] } @log ], [qw(GET PUT GET PUT)], 'GET, PUT(409), GET, PUT';
+    is_deeply query($log[1][1]), { fieldValidation => 'Warn' }, 'the first PUT';
+    is_deeply query($log[3][1]), { fieldValidation => 'Warn' }, 'the retried PUT';
+};
+
 subtest 'bad fieldValidation or options are refused before a request' => sub {
     my $kube = make_kube();
     my $sent = 0;

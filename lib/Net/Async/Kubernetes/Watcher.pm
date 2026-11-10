@@ -491,6 +491,10 @@ sub _start_watch {
             } ? 'HTTP ' . $response->status : $@;
             return $weak_self->_watch_failed($cause, $response->status);
         }
+        # A stream that was accepted can still carry Warning headers (a
+        # deprecated API): hand them to on_warning, as the synchronous
+        # client does after every stream.
+        $rest->check_response($response, 'watch ' . $weak_self->resource);
         # So is a stream that ends on an ERROR event (other than 410 Gone,
         # which lets the reconnect start over), or at once without any.
         # Reconnecting at once would be a tight loop against the API server.

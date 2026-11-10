@@ -4,7 +4,8 @@ Revision history for Net-Async-Kubernetes
  - The Warning headers of an API response reach the new on_warning
    callback: the response headers are handed on from the HTTP and the
    streaming transport, so a dropped field or a deprecated API is no
-   longer lost. Needs Kubernetes::REST 1.111.
+   longer lost. A watch delivers the warnings of a stream that was
+   accepted, not only of a rejected one. Needs Kubernetes::REST 1.111.
  - New attribute field_validation (Strict, Warn or Ignore) and a
    fieldValidation option on create, update, update_status, patch and
    patch_status, sent as the fieldValidation query parameter, as in

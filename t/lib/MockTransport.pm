@@ -94,7 +94,8 @@ sub mock_response_queue {
 # registered events are not delivered - and the request resolves, with or
 # without complete, with that status and a Status error body for
 # check_response - or the body option: a string as it is, a hashref as JSON.
-# fail still fails it instead.
+# fail still fails it instead. The headers option (lower-cased name => arrayref
+# of values) goes on the response a completed stream resolves with.
 
 sub mock_watch_events {
     my ($path, $events, $opts) = @_;
@@ -248,6 +249,7 @@ sub install {
                         $f->done(Kubernetes::REST::HTTPResponse->new(
                             status  => $status,
                             content => '',
+                            headers => $opts->{headers} // {},
                         )) unless $f->is_cancelled;
                     }
                 };
