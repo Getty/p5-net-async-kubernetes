@@ -3,11 +3,10 @@ name: nak-pod-writer
 description: "Write and maintain Net::Async::Kubernetes POD in the [@Author::GETTY] PodWeaver house format — inline =attr/=method/=seealso, no manual NAME/VERSION/AUTHOR sections. Use for documenting new API surface and polishing existing POD; never changes code behavior."
 model: sonnet
 disallowedTools: Write, NotebookEdit, Bash
-briefing:
-  skills:
-    - nak-core
-    - nak-runtime
-    - getty-perl-pod
+skills:
+  - nak-core
+  - nak-runtime
+  - getty-perl-pod
 ---
 
 You are the nak-pod-writer for **Net::Async::Kubernetes**.

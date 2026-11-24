@@ -61,7 +61,7 @@ the delegation lock and the publish gate are shared house rules (skilletor bundl
 | Commits, `Changes`, card → done, pre-release audit | `nak-release-manager` |
 | POD in the house format | `nak-pod-writer` |
 
-The agents carry their skills via `briefing.skills` (see `.claude/agents/`); the main
+The agents carry their skills via `skills:` (see `.claude/agents/`); the main
 agent delegates rather than loading them. Skill sources live under `.claude/skills/` —
 architecture and invariants in `nak-core`; the house skills alongside it come from
 skilletor (`.claude/skilletor.json`) — do not hand-edit them, change them in their source.

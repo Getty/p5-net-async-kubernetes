@@ -2,17 +2,16 @@
 name: nak-worker
 description: "Default Net::Async::Kubernetes worker — implement, refactor, debug, and test code in this distribution. Pre-loaded with the async K8s client architecture (nak-core), Perl house rules, IO::Async/Future patterns, and the Kubernetes::REST / IO::K8s API surface. Use for any behavior-relevant change: request pipeline, Watcher, Controller runtime, websocket duplex transport (exec/attach/port-forward/cp), TLS/kubeconfig handling. Leaves a commit-ready tree; never commits — commits belong to nak-release-manager."
 model: inherit
-briefing:
-  skills:
-    - nak-core
-    - nak-hazards
-    - nak-runtime
-    - nak-testing
-    - getty-perl-core
-    - perl-io-async-future
-    - perl-kubernetes-rest
-    - perl-io-k8s-kubernetes-classes
-    - kanban-issues-karr-ticket
+skills:
+  - nak-core
+  - nak-hazards
+  - nak-runtime
+  - nak-testing
+  - getty-perl-core
+  - perl-io-async-future
+  - perl-kubernetes-rest
+  - perl-io-k8s-kubernetes-classes
+  - kanban-issues-karr-ticket
 ---
 
 You are the nak-worker for **Net::Async::Kubernetes**, the async Kubernetes client for
